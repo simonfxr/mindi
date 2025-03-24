@@ -335,39 +335,6 @@ Key differences:
 - Improved type safety through Kotlin's type system
 - Explicit functional API in addition to annotations
 
-## GitHub Actions CI/CD
-
-This project uses GitHub Actions for Continuous Integration and Deployment:
-
-- **Test Workflow**: Runs all tests on JVM, JS, and Linux platforms on every push and pull request
-- **Build Workflow**: Builds the project and uploads artifacts on every push and pull request
-- **Documentation Workflow**: Generates API documentation on every push to master and publishes it to GitHub Pages on release tags
-- **Publish Workflow**: Publishes the library to Maven Central when a new release is created
-
-### Setting up secrets for publishing
-
-To publish to Maven Central, you need to set up the following secrets in your GitHub repository:
-
-1. `SONATYPE_USERNAME`: Your Sonatype OSSRH username
-2. `SONATYPE_PASSWORD`: Your Sonatype OSSRH password
-3. `GPG_PRIVATE_KEY`: Your ASCII-armored GPG private key (export with `gpg --export-secret-keys --armor YOUR_KEY_ID`)
-4. `GPG_PASSPHRASE`: The passphrase for your GPG key
-
-### Creating a new release
-
-1. Create and push a tag with the version: `git tag v1.0.0 && git push origin v1.0.0`
-2. Create a new release on GitHub based on the tag
-3. The Publish workflow will automatically:
-   - Determine the version from the git tag (removes the 'v' prefix if present)
-   - Publish the library to Maven Central with this version
-
-The version is automatically determined using the following logic:
-- If a git tag exists, use it as the version (removing any 'v' prefix)
-- If the working directory has uncommitted changes, append `-SNAPSHOT` to the version
-- If no tags exist, default to `0.1.0-SNAPSHOT`
-
-You can also manually trigger the publish workflow from the GitHub Actions tab and optionally specify a version.
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

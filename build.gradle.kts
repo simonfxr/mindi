@@ -1,6 +1,14 @@
+@file:OptIn(ExperimentalKotlinGradlePluginApi::class)
+
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.atomicfu)
+    alias(libs.plugins.dokka)
+    alias(libs.plugins.nexus.publish)
+    `maven-publish`
+    id("signing")
 }
 
 atomicfu {
@@ -8,7 +16,11 @@ atomicfu {
 }
 
 group = "de.sfxr"
-version = "1.0-SNAPSHOT"
+
+val forcedVersion = System.getenv("FORCED_VERSION")?.takeIf { it.isNotBlank() }
+version = forcedVersion ?: "0.1.0-SNAPSHOT"
+
+println("Building with version: $version")
 
 repositories {
     mavenCentral()
@@ -27,8 +39,6 @@ kotlin {
 
     js(IR) {
         nodejs()
-        // Browser target is configured but browser tests are explicitly disabled
-        // because they require a browser to be installed
         browser {
             testTask {
                 enabled = false
@@ -100,6 +110,76 @@ kotlin {
         }
         val mingwX64Test by getting {
             dependsOn(windowsTest)
+        }
+    }
+}
+
+publishing {
+    publications.withType<MavenPublication> {
+        // Provide information required by Maven Central
+        pom {
+            name.set("mindi")
+            description.set("Minimal Dependency Injection for Kotlin Multiplatform")
+            url.set("https://github.com/simonfxr/mindi")
+
+            licenses {
+                license {
+                    name.set("MIT License")
+                    url.set("https://opensource.org/licenses/MIT")
+                }
+            }
+
+            developers {
+                developer {
+                    id.set("simonfxr")
+                    name.set("Simon Reiser")
+                    email.set("me@sfxr.de")
+                }
+            }
+
+            scm {
+                connection.set("scm:git:git://github.com/simonfxr/mindi.git")
+                developerConnection.set("scm:git:ssh://github.com/simonfxr/mindi.git")
+                url.set("https://github.com/simonfxr/mindi")
+            }
+        }
+    }
+
+    // Configure repositories
+    repositories {
+        maven {
+            name = "OSSRH"
+            val releasesRepoUrl = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
+            val snapshotsRepoUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
+            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+
+            credentials {
+                username = project.findProperty("mavenCentralUsername") as String? ?: System.getenv("mavenCentralUsername")
+                password = project.findProperty("mavenCentralPassword") as String? ?: System.getenv("mavenCentralPassword")
+            }
+        }
+    }
+}
+
+// Signing configuration
+signing {
+    val signingKey: String? = project.findProperty("signingKey") as String? ?: System.getenv("signingKey")
+    val signingPassword: String? = project.findProperty("signingPassword") as String? ?: System.getenv("signingPassword")
+
+    if (signingKey != null && signingPassword != null) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign(publishing.publications)
+    }
+}
+
+// Sonatype Nexus publishing configuration
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+            username.set(project.findProperty("mavenCentralUsername") as String? ?: System.getenv("mavenCentralUsername"))
+            password.set(project.findProperty("mavenCentralPassword") as String? ?: System.getenv("mavenCentralPassword"))
         }
     }
 }
