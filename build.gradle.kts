@@ -18,7 +18,7 @@ atomicfu {
 group = "de.sfxr"
 
 val forcedVersion = System.getenv("FORCED_VERSION")?.takeIf { it.isNotBlank() }
-version = forcedVersion ?: "0.1.0-SNAPSHOT"
+version = forcedVersion ?: "0.1.0"
 
 println("Building with version: $version")
 
