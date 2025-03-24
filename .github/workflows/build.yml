@@ -27,7 +27,7 @@ jobs:
         run: ./gradlew properties | grep "version:"
 
       - name: Build with Gradle
-        run: ./gradlew build -x test
+        run: ./gradlew build -x allTest
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
