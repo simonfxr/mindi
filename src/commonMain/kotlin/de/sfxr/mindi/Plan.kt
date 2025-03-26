@@ -1,9 +1,7 @@
 package de.sfxr.mindi
 
 import de.sfxr.mindi.internal.sizeOr
-import kotlin.reflect.KClass
 import kotlin.reflect.KType
-import kotlin.reflect.typeOf
 
 internal typealias Index = Instantiation.Index
 
@@ -68,14 +66,14 @@ class Plan internal constructor(
         internal fun build(componentSequence: Iterable<Component<*>>, parent: SharedContext?): Plan =
             Planning(componentSequence, parent).plan()
 
-        internal inline fun resolveSingleProvider(all: List<Index>, dep: Dependency.Single, component: (Index) -> Component<*>): List<Index> {
+        internal inline fun resolveSingleProvider(c: Component<*>?, all: List<Index>, dep: Dependency.Single, component: (Index) -> Component<*>): List<Index> {
             val candidates = all.filter { dep.qualifier == null || dep.qualifier in component(it).names }
             if (candidates.size == 1)
                 return candidates
             else if (candidates.isEmpty() && dep.required)
-                throw IllegalStateException("Failed to find provider for ${dep.type}")
+                throw IllegalStateException("Failed to find provider for ${dep.type} required by ${c?.name}: ${c?.klass}")
             else if (dep.qualifier != null)
-                throw IllegalStateException("Failed to find unique provider qualified '${dep.qualifier}' for ${dep.type}")
+                throw IllegalStateException("Failed to find unique provider qualified '${dep.qualifier}' for ${dep.type} required by ${c?.name}: ${c?.klass}")
 
             // Iterate dependencies level by level
             // Components at level k shadow all components at level > k
@@ -116,7 +114,7 @@ class Plan internal constructor(
     internal inline fun prefill(resolver: ValueResolver, selector: (Component<*>) -> List<Dependency>) = components.map { c ->
         selector(c).map { a ->
             when (a) {
-                is Dependency.Value<*> -> resolver.resolveValue(a)
+                is Dependency.Value<*> -> resolver.resolveValue(a, c).getOrThrow()
                 else -> Unit
             }
         }
@@ -229,19 +227,19 @@ class Plan internal constructor(
          * @return List of indices pointing to components that satisfy the dependency
          * @throws IllegalStateException if the dependency cannot be satisfied or is ambiguous
          */
-        private fun resolve(dep: Dependency): List<Index> = when (dep) {
+        private fun resolve(c: Component<*>, dep: Dependency): List<Index> = when (dep) {
             is Dependency.Value<*> -> emptyList()
             is Dependency.Multiple -> {
                 val ps = providers(dep.type)
                 if (ps.isEmpty() && dep.required)
-                    throw IllegalStateException("Failed to find provider for ${dep.type}")
+                    throw IllegalStateException("Failed to find provider for ${dep.type} required by ${c.name}: ${c.klass}")
                 ps
             }
-            is Dependency.Single -> resolveSingleProvider(dep)
+            is Dependency.Single -> resolveSingleProvider(c, dep)
         }
 
-        private fun resolveSingleProvider(dep: Dependency.Single): List<Index> =
-            resolveSingleProvider(providers(dep.type), dep, this::component)
+        private fun resolveSingleProvider(c: Component<*>, dep: Dependency.Single): List<Index> =
+            resolveSingleProvider(c, providers(dep.type), dep, this::component)
 
         /**
          * Wrapper for instantiate_ that returns the index
@@ -280,13 +278,13 @@ class Plan internal constructor(
             }
             if (constructOnly) {
                 componentSlot[i] = -(2 + level)
-                val args = c.constructorArgs.map { resolveAll(level + 1, it, false) }
+                val args = c.constructorArgs.map { resolveAll(level + 1, c, it, false) }
                 val slot = slotComponent.size
                 instantiations.add(Instantiation(-1, args))
                 slotComponent.add(i)
                 componentSlot[i] = slot
             } else {
-                val args = c.fields.map { resolveAll(level + 1, it, true) }
+                val args = c.fields.map { resolveAll(level + 1, c, it, true) }
                 instantiations.add(Instantiation(slot, args))
                 initialized[slot] = true
             }
@@ -295,8 +293,8 @@ class Plan internal constructor(
         /**
          * Resolves all components needed for a dependency and ensures they are instantiated
          */
-        private fun resolveAll(level: Int, f: Dependency, constructOnly: Boolean) =
-            resolve(f).map { instantiate(level, it, constructOnly) }
+        private fun resolveAll(level: Int, c: Component<*>, f: Dependency, constructOnly: Boolean) =
+            resolve(c, f).map { instantiate(level, it, constructOnly) }
 
         /**
          * Creates a complete instantiation plan for all required components.

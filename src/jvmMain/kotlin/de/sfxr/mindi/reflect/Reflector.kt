@@ -7,6 +7,8 @@ import de.sfxr.mindi.internal.compose
 import kotlin.reflect.*
 import kotlin.reflect.full.declaredMembers
 import kotlin.reflect.full.starProjectedType
+import kotlin.reflect.jvm.isAccessible
+import kotlin.reflect.jvm.javaField
 import de.sfxr.mindi.annotations.Component as ComponentAnnotation
 
 /**
@@ -81,7 +83,7 @@ fun <T: Any> Reflector.reflectConstructor(constructor: KFunction<T>, type: TypeP
     val constructorArgs: List<Dependency> = constructor.parameters.map { p ->
         val valueExpression = p.findFirstAnnotation(valueAnnotations)
         if (valueExpression != null) {
-            Dependency.parseValueExpression(TypeProxy(p.type), valueExpression)
+            Dependency.parseValueExpressionFor(TypeProxy(p.type), valueExpression, names.firstOrNull(), type.type)
         } else {
             val autowiredRequired = p.findFirstAnnotation(autowiredAnnotations)
             val required = autowiredRequired ?: (!p.isOptional && !p.type.isMarkedNullable)
@@ -128,7 +130,7 @@ fun <T: Any> Reflector.reflectConstructor(constructor: KFunction<T>, type: TypeP
  * marked with @Autowired.
  *
  * @param T The type of the component
- * @param klass The class of the component
+ * @param type The type of the component
  * @return Component definition created from reflection
  */
 fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
@@ -144,7 +146,7 @@ fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
         cons1.filter { c -> c.hasAnyAnnotation(autowiredAnnotations) }
     @Suppress("UNCHECKED_CAST")
     val constructor = when {
-        cons.isEmpty() && cons1.isEmpty() -> throw IllegalArgumentException("Missing public constructor")
+        cons.isEmpty() && cons1.isEmpty() -> throw IllegalArgumentException("Missing public constructor for $klass")
         cons.size > 1 -> throw IllegalArgumentException("Ambiguous constructor")
         else -> cons.first() as KFunction<T>
     }
@@ -182,6 +184,8 @@ private fun Reflector.scanMembers(
     if (type in superTypes)
         return
     superTypes.add(type)
+    if (type.arguments.isNotEmpty())
+        superTypes.add(klass.starProjectedType)
     if (klass == Any::class || (klass.qualifiedName ?: "").startsWith("kotlin.Function"))
         return
     val postConstructCbs = mutableListOf<Callback>()
@@ -199,31 +203,40 @@ private fun Reflector.scanMembers(
         ) {
             if (m.visibility != KVisibility.PUBLIC)
                 runCatching { m.setAccessible() }
-            listenerArgs.add(param1Klass.starProjectedType)
+            listenerArgs.add(param1Type)
             listenerHandlers.add { o, v -> m.call(o, v) }
             continue
         }
 
         // Process lifecycle methods
-        if (params.size == 1 && params[0].kind == KParameter.Kind.INSTANCE && m.visibility == KVisibility.PUBLIC) {
+        if (params.size == 1 && params[0].kind == KParameter.Kind.INSTANCE) {
+            if (m.visibility != KVisibility.PUBLIC)
+                runCatching { m.setAccessible() }
             if (m.hasAnyAnnotation(postConstructAnnotations))
                 postConstructCbs.add { m.call(it) }
             if (m.hasAnyAnnotation(preDestroyAnnotations))
                 closeCbs.add { m.call(it) }
         }
 
+        val javaField: KAnnotatedElement? = (m as? KProperty<*>)?.javaField?.let {
+            object : KAnnotatedElement {
+                override val annotations = it.annotations.toList()
+            }
+        }
+
         // Process injectable fields and setters
-        val autowiredRequired = m.findFirstAnnotation(autowiredAnnotations)
-        val valueExpression = m.takeIf { autowiredRequired == null }?.findFirstAnnotation(valueAnnotations)
-        val qualifier = m.takeIf { autowiredRequired != null }?.findFirstAnnotation(qualifierAnnotations)
+        val autowiredRequired = m.findFirstAnnotation(autowiredAnnotations) ?: javaField?.findFirstAnnotation(autowiredAnnotations)
+        val valueExpression = if (autowiredRequired != null) null else m.findFirstAnnotation(valueAnnotations) ?: javaField?.findFirstAnnotation(valueAnnotations)
+        val qualifier = if (autowiredRequired == null) null else m.findFirstAnnotation(qualifierAnnotations) ?: javaField?.findFirstAnnotation(qualifierAnnotations)
         if (autowiredRequired != null || valueExpression != null) {
+
             if (m is KMutableProperty1<*, *>) {
                 val setter = m.setter
-                if (m.visibility != KVisibility.PUBLIC)
-                    runCatching { m.setAccessible() }
+                m.setAccessible()
+                setter.isAccessible = true
                 val fieldType = m.returnType
                 if (valueExpression != null)
-                    fields.add(Dependency.parseValueExpression(TypeProxy(fieldType), valueExpression))
+                    fields.add(Dependency.parseValueExpressionFor(TypeProxy(fieldType), valueExpression, null, type))
                 else
                     fields.add(Dependency(fieldType, qualifier, autowiredRequired!!))
                 if (!fieldType.isMarkedNullable)
@@ -234,7 +247,7 @@ private fun Reflector.scanMembers(
                 if (m.visibility != KVisibility.PUBLIC)
                     runCatching { m.setAccessible() }
                 if (valueExpression != null)
-                    fields.add(Dependency.parseValueExpression(TypeProxy(param1Type), valueExpression))
+                    fields.add(Dependency.parseValueExpressionFor(TypeProxy(param1Type), valueExpression, null, type))
                 else
                     fields.add(Dependency(param1Type, qualifier, autowiredRequired!!))
 

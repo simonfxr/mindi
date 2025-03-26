@@ -228,7 +228,11 @@ data class Component<out T: Any> internal constructor(
             error("Index $index out of bounds for constructorArgs with size ${constructorArgs.size}")
         }
         val arg = constructorArgs[index]
-        val valueDependency = Dependency.parseValueExpression(TypeProxy(arg.type), expression)
+        val valueDependency = try {
+            Dependency.parseValueExpressionFor(TypeProxy(arg.type), expression, name, type)
+        } catch(e: Exception) {
+            throw RuntimeException("failed to parse value expression for ${name}: ${klass}: $expression", e)
+        }
 
         return copy(constructorArgs = constructorArgs.mapIndexed { i, dep ->
             if (i == index) valueDependency else dep

@@ -87,7 +87,7 @@ interface ValueResolver {
  * @param valueDependency The Value dependency to resolve
  * @return Result containing either the resolved value or an error
  */
-fun <T: Any> ValueResolver.resolveValue(valueDependency: Dependency.Value<T>): Result<T> {
+fun <T: Any> ValueResolver.resolveValue(valueDependency: Dependency.Value<T>, consumer: Component<*>? = null): Result<T> {
     val klass = valueDependency.klass
     val variable = valueDependency.variable
     val defaultValue = valueDependency.default
@@ -98,14 +98,14 @@ fun <T: Any> ValueResolver.resolveValue(valueDependency: Dependency.Value<T>): R
         return Result.success(defaultValue)
 
     if (v === null)
-        return Result.failure(IllegalStateException("failed to resolve variable $variable"))
+        return Result.failure(IllegalStateException("failed to resolve variable $variable required by ${consumer?.name}: ${consumer?.klass}"))
 
     val coerced = v safeCast valueDependency.typeProxy
     if (coerced != null)
         return Result.success(coerced)
 
     if (v !is String)
-        return Result.failure(IllegalArgumentException("Wrong type, cannot parse ${v::class} to $klass"))
+        return Result.failure(IllegalArgumentException("Wrong type, cannot parse ${v::class} to $klass while resolving $variable required by ${consumer?.name}: ${consumer?.klass}"))
 
     return runCatching { parseValue(valueDependency.typeProxy, v) }
 }

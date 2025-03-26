@@ -199,7 +199,7 @@ class Context(
      * @return List of indices pointing to matching components
      */
     private fun findComponentIndices(dependency: Dependency.Single): List<Instantiation.Index> =
-        Plan.resolveSingleProvider(findByType(dependency.type), dependency.copy(required=false)) {
+        Plan.resolveSingleProvider(null, findByType(dependency.type), dependency.copy(required=false)) {
             shared.componentsTable[it.depth][it.index]
         }
 

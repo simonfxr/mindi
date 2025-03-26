@@ -126,6 +126,17 @@ sealed class Dependency {
                 return Value(type, "", v)
             }
         }
+
+        internal fun <T: Any> parseValueExpressionFor(
+            type: TypeProxy<T>, expression: String,
+            componentName: String?, componentType: KType,
+        ): Value<T> {
+            try {
+                return parseValueExpression(type, expression)
+            } catch (e: Exception) {
+                throw RuntimeException("failed to parse value expression for ${componentName}: ${componentType}: $expression", e)
+            }
+        }
     }
 }
 
