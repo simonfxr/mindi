@@ -99,11 +99,12 @@ fun <T: Any> Reflector.reflectConstructor(constructor: KFunction<T>, type: TypeP
     val listenerArgs = ArrayList<KType>()
     val listenerHandlers = ArrayList<Sink>()
     val superTypes = HashSet<KType>()
+    val processedProperties = HashSet<String>() // Track non-private property names to avoid duplication
 
     if (maybeExtendsAutoClosable(klass))
         close.value = { (it as? AutoCloseable)?.close() }
 
-    scanMembers(type.type, superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close)
+    scanMembers(type.type, superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close, processedProperties)
 
     return Component<T>(
         type = type.type,
@@ -179,7 +180,8 @@ private fun Reflector.scanMembers(
     listenerArgs: MutableList<KType>,
     listenerHandlers: MutableList<Sink>,
     postConstruct: Box<Callback?>,
-    close: Box<Callback?>
+    close: Box<Callback?>,
+    processedProperties: MutableSet<String> = HashSet()
 ) {
     val klass = type.classifier as KClass<*>
     if (type in superTypes)
@@ -237,8 +239,14 @@ private fun Reflector.scanMembers(
         val valueExpression = if (autowiredRequired != null) null else m.findFirstAnnotation(valueAnnotations) ?: javaField?.findFirstAnnotation(valueAnnotations)
         val qualifier = if (autowiredRequired == null) null else m.findFirstAnnotation(qualifierAnnotations) ?: javaField?.findFirstAnnotation(qualifierAnnotations)
         if (autowiredRequired != null || valueExpression != null) {
-
+            val isPrivate = m.visibility == KVisibility.PRIVATE
             if (m is KMutableProperty1<*, *>) {
+                if (!isPrivate && m.name in processedProperties)
+                    continue // Skip this property as we've already processed it
+
+                if (!isPrivate)
+                    processedProperties.add(m.name)
+
                 val setter = m.setter
                 m.setAccessible()
                 setter.isAccessible = true
@@ -252,6 +260,15 @@ private fun Reflector.scanMembers(
                 else
                     setters.add { o, v -> setter.call(o, v) }
             } else if (params.size == 2 && params[0].kind == KParameter.Kind.INSTANCE && param1Klass is KClass<*> && m.name.startsWith("set")) {
+                // Extract the property name from setter (e.g., setFoo -> foo)
+                val propertyName = m.name.substring(3).replaceFirstChar { it.lowercase() }
+
+                if (!isPrivate && propertyName in processedProperties)
+                    continue // Skip this setter as we've already processed it for this property
+
+                if (!isPrivate)
+                    processedProperties.add(propertyName)
+
                 if (m.visibility != KVisibility.PUBLIC)
                     runCatching { m.setAccessible() }
                 if (valueExpression != null)
@@ -280,7 +297,7 @@ private fun Reflector.scanMembers(
     // Process parent classes
     for (parent in klass.supertypes)
         scanMembers(substituteType(typeSubstitution, parent) ?: parent,
-            superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close)
+            superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close, processedProperties)
 }
 
 /**
