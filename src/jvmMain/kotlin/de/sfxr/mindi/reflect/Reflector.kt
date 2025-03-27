@@ -5,6 +5,7 @@ import de.sfxr.mindi.annotations.*
 import de.sfxr.mindi.internal.compact
 import de.sfxr.mindi.internal.compose
 import kotlin.reflect.*
+import kotlin.reflect.full.createType
 import kotlin.reflect.full.declaredMembers
 import kotlin.reflect.full.starProjectedType
 import kotlin.reflect.jvm.isAccessible
@@ -188,6 +189,13 @@ private fun Reflector.scanMembers(
         superTypes.add(klass.starProjectedType)
     if (klass == Any::class || (klass.qualifiedName ?: "").startsWith("kotlin.Function"))
         return
+
+    // Create type substitution map for generic types
+    val typeSubstitution =
+        klass.typeParameters.zip(type.arguments) { param, arg ->
+            param.name to arg
+        }.toMap()
+
     val postConstructCbs = mutableListOf<Callback>()
     val closeCbs = mutableListOf<Callback>()
     for (m in klass.declaredMembers) {
@@ -271,7 +279,44 @@ private fun Reflector.scanMembers(
 
     // Process parent classes
     for (parent in klass.supertypes)
-        scanMembers(parent, superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close)
+        scanMembers(substituteType(typeSubstitution, parent) ?: parent,
+            superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close)
+}
+
+/**
+ * Substitutes type parameters in a KType with concrete types from a type substitution map.
+ *
+ * @param typeSubstitution Map from type parameter names to concrete types
+ * @param type The type to apply substitutions to
+ * @return A new KType with all type parameters replaced with their concrete types, or null if no substitutions were made
+ */
+private fun substituteType(typeSubstitution: Map<String, KTypeProjection>, type: KType): KType? {
+    if (typeSubstitution.isEmpty()) return null
+    val args = type.arguments
+    val substitutedArgs = args.map { arg -> substituteTypeProjection(typeSubstitution, arg) }
+    if (substitutedArgs == args)
+        return null
+    return (type.classifier as KClass<*>).createType(substitutedArgs, type.isMarkedNullable, type.annotations)
+}
+
+private fun substituteTypeProjection(typeSubstitution: Map<String, KTypeProjection>, arg: KTypeProjection): KTypeProjection {
+    val argType = arg.type ?: return KTypeProjection.STAR
+    val classifier = argType.classifier
+    val substituted = if (classifier is KTypeParameter) {
+        val subst = typeSubstitution[classifier.name]!!
+        if (subst.variance != KVariance.INVARIANT)
+            return subst
+        subst.type!!
+    } else {
+        substituteType(typeSubstitution, argType)
+    }
+    return substituted?.let { replaced ->
+        when (arg.variance!!) {
+            KVariance.INVARIANT -> KTypeProjection.invariant(replaced)
+            KVariance.IN -> KTypeProjection.contravariant(replaced)
+            KVariance.OUT -> KTypeProjection.covariant(replaced)
+        }
+    } ?: arg
 }
 
 /**
