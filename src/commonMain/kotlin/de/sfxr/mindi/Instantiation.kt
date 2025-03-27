@@ -7,7 +7,8 @@ package de.sfxr.mindi
  * both constructor arguments and field values, using indices that point to
  * where in the component hierarchy each dependency can be found.
  *
- * @property args Constructor argument dependencies as lists of indices
+ * @property slot the index of the instantiated component or -1 if about to be instantiated
+ * @property args Constructor argument / field setter dependencies as lists of indices
  */
 internal data class Instantiation(val slot: Int, val args: List<List<Index>>) {
     /**

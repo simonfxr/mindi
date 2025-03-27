@@ -208,6 +208,11 @@ class Plan internal constructor(
         /**
          * If false object not yet scheduled for construction or fields/post construct not yet called
          */
+        private val linked = BooleanArray(components.size)
+
+        /**
+         * If false object not yet scheduled for construction or fields/post construct not yet called
+         */
         private val initialized = BooleanArray(components.size)
 
         /**
@@ -241,16 +246,19 @@ class Plan internal constructor(
         private fun resolveSingleProvider(c: Component<*>, dep: Dependency.Single): List<Index> =
             resolveSingleProvider(c, providers(dep.type), dep, this::component)
 
+        private enum class Phase {
+            CONSTRUCT, LINK, INIT
+        }
+
         /**
          * Wrapper for instantiate_ that returns the index
          */
-        private fun instantiate(level: Int, index: Index, constructOnly: Boolean): Index {
+        private fun instantiate(level: Int, index: Index, phase: Phase): Index {
             if (index.depth != 0)
                 return index
-            // First schedule constructor call
-            instantiate_(level, index.index, true)
-            if (!constructOnly) // then schedule any fields/post construct callback
-                instantiate_(level, index.index, false)
+            instantiate_(level, index.index, Phase.CONSTRUCT)
+            if (phase.ordinal >= Phase.LINK.ordinal) instantiate_(level, index.index, Phase.LINK)
+            if (phase.ordinal >= Phase.INIT.ordinal) instantiate_(level, index.index, Phase.INIT)
             return index
         }
 
@@ -260,14 +268,20 @@ class Plan internal constructor(
          *
          * @param level Current recursion level
          * @param i Index of the component to instantiate
-         * @param constructOnly If true, only handle constructor injection; if false, handle field injection and post-construct
+         * @param phase phase
          */
-        private fun instantiate_(level: Int, i: Int, constructOnly: Boolean) {
-            val slot = componentSlot[i]
-            if (slot >= 0 && (constructOnly || initialized[slot]))
+        private fun instantiate_(level: Int, i: Int, phase: Phase) {
+            val curSlot = componentSlot[i]
+            val currentPhase = when {
+                initialized[i] -> Phase.INIT
+                linked[i] -> Phase.LINK
+                curSlot >= 0 -> Phase.CONSTRUCT
+                else -> null
+            }
+            if (currentPhase != null && currentPhase.ordinal >= phase.ordinal)
                 return
             val c = components[i]
-            if (slot < -1) {
+            if (curSlot < -1) {
                 val cycleComponents = componentSlot.withIndex()
                     .filter { (_, v) -> v <= -2 }
                     .sortedBy { (_, v) -> -v }
@@ -276,25 +290,44 @@ class Plan internal constructor(
                 val cycleDescription = cycleComponents.joinToString(" → ") { "${it.name} (${it.klass.simpleName})" }
                 throw IllegalStateException("Circular dependency detected: $cycleDescription")
             }
-            if (constructOnly) {
-                componentSlot[i] = -(2 + level)
-                val args = c.constructorArgs.map { resolveAll(level + 1, c, it, false) }
-                val slot = slotComponent.size
-                instantiations.add(Instantiation(-1, args))
-                slotComponent.add(i)
-                componentSlot[i] = slot
-            } else {
-                val args = c.fields.map { resolveAll(level + 1, c, it, true) }
-                instantiations.add(Instantiation(slot, args))
-                initialized[slot] = true
+            componentSlot[i] = -(2 + level)
+            val slot: Int
+            when (phase) {
+                Phase.CONSTRUCT -> {
+                    val args = c.constructorArgs.map { resolveAll(level + 1, c, it, Phase.INIT) }
+                    slot = slotComponent.size
+                    instantiations.add(Instantiation(-1, args))
+                    slotComponent.add(i)
+                    componentSlot[i] = slot
+                    if (c.fields.isEmpty()) {
+                        linked[i] = true
+                        initialized[i] = c.postConstruct == null
+                    }
+                }
+                Phase.LINK -> {
+                    slot = curSlot
+                    if (c.fields.isNotEmpty()) {
+                        val args = c.fields.map { resolveAll(level + 1, c, it, Phase.CONSTRUCT) }
+                        instantiations.add(Instantiation(slot, args))
+                    }
+                    linked[i] = true
+                    initialized[i] = c.postConstruct == null
+                }
+                Phase.INIT -> {
+                    slot = curSlot
+                    c.fields.forEach { resolveAll(level + 1, c, it, Phase.LINK) }
+                    instantiations.add(Instantiation(-slot - 2, emptyList()))
+                    initialized[i] = true
+                }
             }
+            componentSlot[i] = slot
         }
 
         /**
          * Resolves all components needed for a dependency and ensures they are instantiated
          */
-        private fun resolveAll(level: Int, c: Component<*>, f: Dependency, constructOnly: Boolean) =
-            resolve(c, f).map { instantiate(level, it, constructOnly) }
+        private fun resolveAll(level: Int, c: Component<*>, f: Dependency, phase: Phase) =
+            resolve(c, f).map { instantiate(level, it, phase) }
 
         /**
          * Creates a complete instantiation plan for all required components.
@@ -312,7 +345,7 @@ class Plan internal constructor(
             // First instantiate all required components (and their dependencies)
             for ((i, c) in components.withIndex())
                 if (c.required)
-                    instantiate(0, Index(0, i), false)
+                    instantiate(0, Index(0, i), Phase.CONSTRUCT)
 
             // Resolve field dependencies for all instantiated components
             var prevInst = 0
@@ -322,13 +355,11 @@ class Plan internal constructor(
                 prevInst = instantiations.size
                 for (i in range)
                     if (instantiations[i].slot == -1)
-                        instantiate(0, Index(0, slotComponent[nextSlot++]), false)
+                        instantiate(0, Index(0, slotComponent[nextSlot++]), Phase.INIT)
             }
 
             // Compress component list to only include used components
             val compressed = slotComponent.map(components::get)
-
-            check(compressed.size * 2 == instantiations.size)
 
             // Remap indices into original components to remapped indices
             fun remap(i: Index) = if (i.depth != 0) i else Index(0, componentSlot[i.index])

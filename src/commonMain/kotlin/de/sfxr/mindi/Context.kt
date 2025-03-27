@@ -358,11 +358,16 @@ class Context(
                         c = plan.components[slot]
                         deps = c.constructorArgs
                         values = argValues[slot]
-                    } else {
+                    } else if (slotOrUnset >= 0) {
                         slot = slotOrUnset
                         c = plan.components[slot]
                         deps = c.fields
                         values = fieldValues[slot]
+                    } else {
+                        slot = -slotOrUnset - 2
+                        c = plan.components[slot]
+                        deps = emptyList()
+                        values = emptyList()
                     }
 
                     val args = deps.withIndex().map { (j, d) ->
@@ -376,11 +381,12 @@ class Context(
                     if (slotOrUnset == -1) {
                         val construct = c.construct
                         instances.add(context.construct(args))
-                    } else {
+                    } else if (slotOrUnset >= 0) {
                         val obj = instances[slot]
                         for ((j, v) in args.withIndex())
                             c.setters[j](obj, v)
-                        c.postConstruct?.invoke(obj)
+                    } else {
+                        c.postConstruct?.invoke(instances[slot])
                     }
                 }
 
