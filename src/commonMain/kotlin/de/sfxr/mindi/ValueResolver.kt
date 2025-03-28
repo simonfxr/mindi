@@ -98,14 +98,14 @@ fun <T: Any> ValueResolver.resolveValue(valueDependency: Dependency.Value<T>, co
         return Result.success(defaultValue)
 
     if (v === null)
-        return Result.failure(IllegalStateException("failed to resolve variable $variable required by ${consumer?.name}: ${consumer?.klass}"))
+        return Result.failure(IllegalStateException("failed to resolve variable $variable${consumer?.let { " required by ${it.name}: ${it.klass}" } ?: ""}"))
 
     val coerced = v safeCast valueDependency.typeProxy
     if (coerced != null)
         return Result.success(coerced)
 
     if (v !is String)
-        return Result.failure(IllegalArgumentException("Wrong type, cannot parse ${v::class} to $klass while resolving $variable required by ${consumer?.name}: ${consumer?.klass}"))
+        return Result.failure(IllegalArgumentException("Wrong type, cannot parse ${v::class} to $klass while resolving $variable${consumer?.let { " required by ${it.name}: ${it.klass}" } ?: ""}"))
 
     return runCatching { parseValue(valueDependency.typeProxy, v) }
 }

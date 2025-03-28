@@ -71,9 +71,9 @@ class Plan internal constructor(
             if (candidates.size == 1)
                 return candidates
             else if (candidates.isEmpty() && dep.required)
-                throw IllegalStateException("Failed to find provider for ${dep.type} required by ${c?.name}: ${c?.klass}")
+                throw IllegalStateException("Failed to find provider for ${dep.type}${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
             else if (dep.qualifier != null)
-                throw IllegalStateException("Failed to find unique provider qualified '${dep.qualifier}' for ${dep.type} required by ${c?.name}: ${c?.klass}")
+                throw IllegalStateException("Failed to find unique provider qualified '${dep.qualifier}' for ${dep.type}${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
 
             // Iterate dependencies level by level
             // Components at level k shadow all components at level > k
