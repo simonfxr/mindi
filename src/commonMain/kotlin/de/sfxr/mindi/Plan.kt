@@ -1,6 +1,7 @@
 package de.sfxr.mindi
 
 import de.sfxr.mindi.internal.sizeOr
+import de.sfxr.mindi.reflect.qualifiedOrSimpleName
 import kotlin.reflect.KType
 
 internal typealias Index = Instantiation.Index
@@ -282,13 +283,25 @@ class Plan internal constructor(
                 return
             val c = components[i]
             if (curSlot < -1) {
-                val cycleComponents = componentSlot.withIndex()
-                    .filter { (_, v) -> v <= -2 }
-                    .sortedBy { (_, v) -> -v }
-                    .map { (i, _) -> components[i] }
+                fun phaseAt(k: Int): String {
+                    return if (initialized[k]) "init"
+                    else if (linked[k]) "fields"
+                    else "construct"
+                }
+                // Find all components currently being instantiated (they form the cycle)
+                val cycleComponents: List<Pair<Component<*>, String>> = componentSlot.withIndex()
+                    .filter { (_, v) -> v <= curSlot } // All components being instantiated (have negative values less than -1)
+                    .sortedBy { (_, v) -> -v }    // Sort by slot values to get dependency order
+                    .map { (i, _) -> components[i] to phaseAt(i) } + listOf(c to (when(phase) {
+                        Phase.CONSTRUCT -> "construct"
+                        Phase.LINK -> "fields"
+                        Phase.INIT -> "init"
+                    }))
 
-                val cycleDescription = cycleComponents.joinToString(" → ") { "${it.name} (${it.klass.simpleName})" }
-                throw IllegalStateException("Circular dependency detected: $cycleDescription")
+                val cycleDescription = cycleComponents.joinToString(" → ") { (comp, phase) ->
+                    "$phase ${comp.name}: ${comp.klass.qualifiedOrSimpleName()}"
+                }
+                throw DependencyCycleException(cycleComponents, "Circular dependency detected: $cycleDescription")
             }
             componentSlot[i] = -(2 + level)
             val slot: Int

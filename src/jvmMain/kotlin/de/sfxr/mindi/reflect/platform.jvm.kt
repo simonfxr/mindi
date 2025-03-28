@@ -20,3 +20,10 @@ internal actual fun KCallable<*>.setAccessible() {
 }
 
 actual fun maybeExtendsAutoClosable(klass: KClass<*>): Boolean = klass.isSubclassOf(AutoCloseable::class)
+
+/**
+ * JVM-specific implementation to get the qualified or simple name of a class.
+ *
+ * On the JVM, we can directly use the qualifiedName property which is always available.
+ */
+internal actual fun KClass<*>.qualifiedOrSimpleName(): String = qualifiedName ?: simpleName ?: "<anonymous>"

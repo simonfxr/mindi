@@ -22,3 +22,13 @@ internal expect fun KCallable<*>.setAccessible()
  * @return True if the class extends AutoCloseable, false otherwise
  */
 internal expect fun maybeExtendsAutoClosable(klass: KClass<*>): Boolean
+
+/**
+ * Platform-specific function to get the qualified or simple name of a class.
+ *
+ * This function provides a consistent way to get class names across different platforms
+ * (JVM, JS, Native) where the qualifiedName property might not be available.
+ *
+ * @return The qualified name of the class if available, or the simple name as fallback
+ */
+internal expect fun KClass<*>.qualifiedOrSimpleName(): String

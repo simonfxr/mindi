@@ -12,3 +12,10 @@ import kotlin.reflect.KClass
 internal actual fun KCallable<*>.setAccessible() {}
 
 actual fun maybeExtendsAutoClosable(klass: KClass<*>): Boolean = true
+
+/**
+ * Native-specific implementation to get the qualified or simple name of a class.
+ *
+ * On native platforms, we use simpleName as the qualifiedName might not be available.
+ */
+internal actual fun KClass<*>.qualifiedOrSimpleName(): String = simpleName ?: "<anonymous>"
