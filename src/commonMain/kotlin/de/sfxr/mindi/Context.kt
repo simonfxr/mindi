@@ -372,7 +372,7 @@ class Context(
 
             try {
                 for ((slotOrUnset, argIndices) in plan.instantiations) {
-                    if (context.isClosed)
+                    if (context.isClosed || parentContext?.isClosed == true)
                         throw IllegalStateException("context closed during construction")
 
                     val slot: Int
