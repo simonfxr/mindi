@@ -101,11 +101,12 @@ class SharedContext(
         for ((d, i, l) in resolveListeners(event, type)) {
             val component = componentsTable[d][i]
             val handler = component.listenerHandlers[l]
-            val receiver = context.receiverAt(d, i)
+            var receiver: Any? = null
             try {
+                receiver = context.receiverAt(d, i) ?: continue
                 handler(receiver, event)
             } catch (e: Exception) {
-                handle(d, component, receiver, e)
+                handle(d, component, receiver ?: continue, e)
             }
         }
     }
@@ -117,7 +118,7 @@ class SharedContext(
      * @param i Index in the components list at the given depth
      * @return Component instance at the given position
      */
-    private fun Context.receiverAt(d: Int, i: Int): Any =
-        if (d == 0) instances[i]
-        else parents[d - 1].instances[i]
+    private fun Context.receiverAt(d: Int, i: Int): Any? =
+        if (d == 0) instances.getOrNull(i) // During startup not all instances may have been constructed yet
+        else parents[d - 1].instances.getOrNull(i) // During close this may race
 }

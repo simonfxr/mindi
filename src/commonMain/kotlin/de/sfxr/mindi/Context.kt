@@ -1,6 +1,7 @@
 package de.sfxr.mindi
 
 import de.sfxr.mindi.internal.associateUnique
+import kotlinx.atomicfu.atomic
 import kotlin.concurrent.Volatile
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
@@ -78,9 +79,11 @@ class Context(
     /** Direct parent context, or null if this is a root context */
     val parent: Context? get() = parents.getOrNull(0)
 
-    @Volatile
-    var isClosed = false
-        private set
+    // Use AtomicFU internally
+    private val _isClosed = atomic(false)
+
+    /** Whether this context is closed */
+    val isClosed: Boolean get() = _isClosed.value
 
     @Volatile
     var isStarted = false
@@ -222,15 +225,23 @@ class Context(
      * @param event The event object to publish
      */
     inline fun <reified T: Any> publishEvent(event: T): Unit =
-        publishEvent(event, typeOf<T>())
+        publishEvent(event, TypeProxy<T>())
 
-    @PublishedApi
-    internal fun publishEvent(event: Any, type: KType) {
-        shared.publishEvent(this, event, type) { d, c, l, e ->
+    /**
+     * Publishes an event to all components with matching event listeners.
+     *
+     * Events are dispatched to components with @EventListener methods
+     * that accept the event type or its supertype.
+     *
+     * @param event The event object to publish
+     * @param type The type that is used to find target listeners
+     */
+    fun <T: Any> publishEvent(event: T, type: TypeProxy<T>) {
+        shared.publishEvent(this, event, type.type) { d, c, l, e ->
             if (d == 0)
-                handleListenerException(event, type, c, l, e)
+                handleListenerException(event, type.type, c, l, e)
             else
-                parents[d - 1].handleListenerException(event, type, c, l, e)
+                parents[d - 1].handleListenerException(event, type.type, c, l, e)
         }
     }
 
@@ -249,9 +260,9 @@ class Context(
      * If multiple components throw exceptions during close, they're collected as suppressed exceptions.
      */
     override fun close() {
-        if (isClosed)
+        // Use AtomicFU to perform the check and set atomically
+        if (_isClosed.getAndSet(true))
             return
-        isClosed = true
 
         var firstException: Exception? = null
         while (!instances.isEmpty()) {

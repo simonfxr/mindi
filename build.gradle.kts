@@ -12,7 +12,8 @@ plugins {
 }
 
 atomicfu {
-    transformJvm = false // Disable JVM transformation, only transform native code
+    transformJvm = true // Disable JVM transformation, only transform native code
+    jvmVariant = "FU"
 }
 
 group = "de.sfxr"
