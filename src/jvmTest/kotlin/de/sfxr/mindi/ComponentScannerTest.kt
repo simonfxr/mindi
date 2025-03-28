@@ -134,7 +134,7 @@ class ComponentScannerTest {
         assertEquals("custom_name", component2?.name, "Component name should be set from annotation")
 
         // Verify qualifier is extracted correctly
-        assertTrue(component3?.names?.contains("qualified") ?: false,
+        assertTrue(component3?.qualifiers?.contains("qualified") ?: false,
             "Component should have qualifier")
 
         // Verify primary is set correctly

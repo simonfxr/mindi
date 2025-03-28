@@ -35,7 +35,7 @@ data class Reflector(
     val preDestroyAnnotations: List<TagAnnotation>,
     val primaryAnnotations: List<TagAnnotation>,
     val valueAnnotations: List<AnnotationOf<String>>,
-    val qualifierAnnotations: List<AnnotationOf<String>>,
+    val qualifierAnnotations: List<AnnotationOf<Any>>,
     val eventListenerAnnotations: List<TagAnnotation>,
 ) {
     companion object {
@@ -49,7 +49,7 @@ data class Reflector(
             preDestroyAnnotations = listOf(AnnotationOf.tagged<PreDestroy>()),
             primaryAnnotations = listOf(AnnotationOf.tagged<Primary>()),
             valueAnnotations = listOf(AnnotationOf.valued<Value, _> { it.value }),
-            qualifierAnnotations = listOf(AnnotationOf.valued<Qualifier, _> { it.value }),
+            qualifierAnnotations = listOf(AnnotationOf.valued<Qualifier, Any> { it.value }),
             eventListenerAnnotations = listOf(AnnotationOf.tagged<EventListener>()),
         )
     }
@@ -60,12 +60,17 @@ data class Reflector(
  *
  * @param T The type of the component
  * @param constructor The constructor to use for instantiation
- * @param names Optional names/qualifiers for the component
+ * @param name Optional name for the component
+ * @param qualifiers Optional qualifiers for the component
  * @param primary Whether this component is the primary implementation
  * @return Component definition created from reflection
  */
-inline fun <reified T: Any> Reflector.reflectConstructor(constructor: KFunction<T>, names: List<String> = emptyList(), primary: Boolean = false): Component<T> =
-    reflectConstructor(constructor, TypeProxy<T>(), names, primary)
+inline fun <reified T: Any> Reflector.reflectConstructor(
+    constructor: KFunction<T>,
+    name: String = "",
+    qualifiers: List<Any> = emptyList(),
+    primary: Boolean = false
+): Component<T> = reflectConstructor(constructor, TypeProxy<T>(), name, qualifiers, primary)
 
 /**
  * Reflects on a class and constructor to create a Component definition.
@@ -73,18 +78,25 @@ inline fun <reified T: Any> Reflector.reflectConstructor(constructor: KFunction<
  * @param T The type of the component
  * @param type The type of the component
  * @param constructor The constructor to use for instantiation
- * @param names Optional names/qualifiers for the component
+ * @param name Optional name for the component
+ * @param qualifiers Optional qualifiers for the component
  * @param primary Whether this component is the primary implementation
  * @return Component definition created from reflection
  */
-fun <T: Any> Reflector.reflectConstructor(constructor: KFunction<T>, type: TypeProxy<T>, names: List<String> = emptyList(), primary: Boolean = false): Component<T> {
+fun <T: Any> Reflector.reflectConstructor(
+    constructor: KFunction<T>,
+    type: TypeProxy<T>,
+    name: String = "",
+    qualifiers: List<Any> = emptyList(),
+    primary: Boolean = false
+): Component<T> {
     check(!constructor.isSuspend)
     val klass = type.type.classifier as KClass<*>
     val construct: Context.(List<Any?>) -> T = { args -> construct(constructor, args) }
     val constructorArgs: List<Dependency> = constructor.parameters.map { p ->
         val valueExpression = p.findFirstAnnotation(valueAnnotations)
         if (valueExpression != null) {
-            Dependency.parseValueExpressionFor(TypeProxy(p.type), valueExpression, names.firstOrNull(), type.type)
+            Dependency.parseValueExpressionFor(TypeProxy(p.type), valueExpression, name, type.type)
         } else {
             val autowiredRequired = p.findFirstAnnotation(autowiredAnnotations)
             val required = autowiredRequired ?: (!p.isOptional && !p.type.isMarkedNullable)
@@ -108,8 +120,8 @@ fun <T: Any> Reflector.reflectConstructor(constructor: KFunction<T>, type: TypeP
 
     return Component<T>(
         type = type.type,
-        defaultName = Component.defaultName(klass),
-        names = names,
+        name = name.ifEmpty { Component.defaultName(klass) },
+        qualifiers = qualifiers,
         superTypes = superTypes,
         construct = construct,
         constructorArgs = constructorArgs,
@@ -141,7 +153,7 @@ fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
     val qualifiers = HashSet(klass.findAllAnnotations(qualifierAnnotations)).apply {
         remove(name)
     }
-    val names = listOf(name) + qualifiers.toList()
+    val qualifiersAny = qualifiers.map { it as Any }
     val primary = klass.hasAnyAnnotation(primaryAnnotations)
     val cons1 = klass.constructors.filter { c -> c.visibility == KVisibility.PUBLIC }
     val cons = if (cons1.size <= 1) cons1 else
@@ -152,7 +164,7 @@ fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
         cons.size > 1 -> throw IllegalArgumentException("Ambiguous constructor")
         else -> cons.first() as KFunction<T>
     }
-    return reflectConstructor(constructor, type, names=names, primary=primary)
+    return reflectConstructor(constructor, type, name=name, qualifiers=qualifiersAny, primary=primary)
 }
 
 /**

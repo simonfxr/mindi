@@ -32,10 +32,10 @@ class ComponentReflectionTest {
     fun testReflectComponentWithAnnotations() {
         val component = Reflector.Default.reflect<TestComponent>()
 
-        // Check component names from annotations
-        assertEquals(2, component.names.size)
-        assertEquals("test_component", component.names[0])
-        assertEquals("qualified_name", component.names[1])
+        // Check component name and qualifiers from annotations
+        assertEquals("test_component", component.name)
+        assertEquals(1, component.qualifiers.size)
+        assertEquals("qualified_name", component.qualifiers[0])
 
         // Check fields reflect the autowired dependency
         assertEquals(1, component.fields.size)
@@ -52,7 +52,7 @@ class ComponentReflectionTest {
     @Test
     fun testReflectFunction() {
         val component = with(Reflector.Default) {
-            reflectConstructor(::createTestComponent, listOf("factory_component"), true)
+            reflectConstructor(::createTestComponent, name = "factory_component", primary = true)
         }
 
         // Check function component properties

@@ -47,13 +47,13 @@ class QualifierTest {
         val postgresComponent = Reflector.Default.reflect(PostgresRepository::class)
 
         // Check both have the same component name but different qualifiers
-        assertEquals(2, mysqlComponent.names.size)
-        assertEquals("repository", mysqlComponent.names[0])
-        assertEquals("mysql", mysqlComponent.names[1])
+        assertEquals("repository", mysqlComponent.name)
+        assertEquals(1, mysqlComponent.qualifiers.size)
+        assertEquals("mysql", mysqlComponent.qualifiers[0])
 
-        assertEquals(2, postgresComponent.names.size)
-        assertEquals("repository", postgresComponent.names[0])
-        assertEquals("postgres", postgresComponent.names[1])
+        assertEquals("repository", postgresComponent.name)
+        assertEquals(1, postgresComponent.qualifiers.size)
+        assertEquals("postgres", postgresComponent.qualifiers[0])
     }
 
     @Test

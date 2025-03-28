@@ -249,7 +249,7 @@ class Context(
 
     private fun handleListenerException(event: Any, etype: KType, c: Component<*>, l: Any, e: Exception) {
         val h = listenerExceptionHandler ?: run {
-            println("*** Exception while publishing event ${event::class} to component ${c.klass} aka ${c.names}: ${e.message}(${e::class})")
+            println("*** Exception while publishing event ${event::class} to component ${c.klass} (${c.name}): ${e.message}(${e::class})")
             return
         }
         h.handleListenerException(ListenerExceptionHandler.ExceptionContext(this, event, etype, l, c), e)
@@ -301,7 +301,7 @@ class Context(
         internal val Component =
             Component<Context>(
                 type = typeOf<Context>(),
-                defaultName = "context",
+                name = "context",
                 primary = true,
                 construct = { this },
                 constructorArgs = emptyList(),

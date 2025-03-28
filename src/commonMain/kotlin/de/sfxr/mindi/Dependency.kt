@@ -78,13 +78,13 @@ sealed class Dependency {
      * Dependency on a single component of a specific type.
      *
      * @property type The required component type including generic type information
-     * @property qualifier Optional qualifier name to disambiguate between multiple components of the same type
+     * @property qualifier Optional qualifier to disambiguate between multiple components of the same type
      * @property required Whether this dependency is required (error if not found)
      */
     @ConsistentCopyVisibility
     data class Single internal constructor(
         override val type: KType,
-        val qualifier: String?,
+        val qualifier: Any?,
         val required: Boolean
     ): Dependency()
 
@@ -163,11 +163,11 @@ internal val dummyMap: Map<String, Any?> = object : Map<String, Any> {
  * Creates a dependency for a type with optional qualifier and required flags.
  *
  * @param type The constructor/setter argument type including generic type information
- * @param qualifier Optional qualifier name to disambiguate between multiple components of the same type
+ * @param qualifier Optional qualifier to disambiguate between multiple components of the same type
  * @param required Whether this dependency must be fulfilled (defaults to true)
  * @return The appropriate Dependency type based on the input type
  */
-fun Dependency(type: KType, qualifier: String? = null, required: Boolean = true): Dependency {
+fun Dependency(type: KType, qualifier: Any? = null, required: Boolean = true): Dependency {
     // Special handling for Map<String, T> types which become Multiple dependencies
     val classifier = type.classifier
     if (classifier is KClass<*> && classifier.isInstance(dummyMap)) {

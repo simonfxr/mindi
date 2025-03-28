@@ -346,14 +346,14 @@ class FunctionTypeTest {
 
         // Get the data processors
         val dataProcessor = context.shared.components
-            .firstOrNull { it.klass == DataProcessor::class && it.names.contains("dataProcessor") }
+            .firstOrNull { it.klass == DataProcessor::class && it.isQualifiedBy("dataProcessor") }
             ?.let { component ->
                 val index = context.shared.components.indexOf(component)
                 context.instances[index] as DataProcessor
             }
 
         val defaultProcessor = context.shared.components
-            .firstOrNull { it.klass == DataProcessor::class && it.names.contains("defaultDataProcessor") }
+            .firstOrNull { it.klass == DataProcessor::class && it.isQualifiedBy("defaultDataProcessor") }
             ?.let { component ->
                 val index = context.shared.components.indexOf(component)
                 context.instances[index] as DataProcessor

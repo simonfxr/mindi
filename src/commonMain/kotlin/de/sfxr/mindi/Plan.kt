@@ -68,7 +68,7 @@ class Plan internal constructor(
             Planning(componentSequence, parent).plan()
 
         internal inline fun resolveSingleProvider(c: Component<*>?, all: List<Index>, dep: Dependency.Single, component: (Index) -> Component<*>): List<Index> {
-            val candidates = all.filter { dep.qualifier == null || dep.qualifier in component(it).names }
+            val candidates = all.filter { dep.qualifier == null || component(it).isQualifiedBy(dep.qualifier) }
             if (candidates.size == 1)
                 return candidates
             else if (candidates.isEmpty() && dep.required)

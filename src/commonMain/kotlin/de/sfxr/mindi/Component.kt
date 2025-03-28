@@ -83,8 +83,8 @@ typealias Callback = (Any) -> Unit
 @ConsistentCopyVisibility
 data class Component<out T: Any> internal constructor(
     val type: KType,
-    val defaultName: String,
-    val names: List<String> = emptyList(),
+    val name: String = "",
+    val qualifiers: List<Any> = emptyList(),
     val construct: Context.(List<Any?>) -> T,
     val constructorArgs: List<Dependency>,
     val superTypes: Collection<KType> = emptyList(),
@@ -105,11 +105,6 @@ data class Component<out T: Any> internal constructor(
         ?: error("Type classifier is not a class: ${type.classifier}")
 
     /**
-     * Returns the primary name of this component, or "unknown" if none exists
-     */
-    val name get() = names.getOrNull(0) ?: defaultName
-
-    /**
      * Checks if this component's type is a subtype of the given type
      *
      * @param type The type to check against
@@ -119,15 +114,37 @@ data class Component<out T: Any> internal constructor(
         type == this.type || type in superTypes || type == anyType
 
     /**
-     * Creates a new Component with the given name as its primary name.
+     * Checks if this component is qualified by the given qualifier.
+     * A component is considered qualified if either its name equals the qualifier
+     * or its qualifiers list contains the qualifier.
      *
-     * @param name The primary name to set for this component
+     * @param qualifier The qualifier to check
+     * @return True if this component is qualified by the specified qualifier
+     */
+    fun isQualifiedBy(qualifier: Any): Boolean =
+        name == qualifier || qualifier in qualifiers
+
+    /**
+     * Creates a new Component with the given name, replacing any existing name.
+     *
+     * @param newName The name to set for this component
      * @return A new Component with the updated name
      */
-    fun named(name: String): Component<T> {
-        check(name != "")
-        if (name in names) return this
-        return copy(names=names + listOf(name))
+    fun named(newName: String): Component<T> {
+        check(newName != "")
+        if (newName == name) return this
+        return copy(name = newName)
+    }
+
+    /**
+     * Creates a new Component with an additional qualifier.
+     *
+     * @param qualifier The qualifier to add to this component
+     * @return A new Component with the additional qualifier
+     */
+    fun qualified(qualifier: Any): Component<T> {
+        if (qualifier in qualifiers) return this
+        return copy(qualifiers = qualifiers + listOf(qualifier))
     }
 
     /**
@@ -135,11 +152,21 @@ data class Component<out T: Any> internal constructor(
      *
      * @param primary Whether this component is the primary implementation for its type
      * @param required Whether this component must be instantiated
-     * @param names Identifiers for this component (for qualification)
+     * @param name Name for this component (for qualification)
+     * @param qualifiers Additional qualifiers for this component
      * @return A new Component with the updated configuration
      */
-    fun with(primary: Boolean=this.primary, required: Boolean=this.required, names: List<String> = this.names): Component<T> =
-        copy(primary=primary, required=required, names=names)
+    fun with(
+        primary: Boolean = this.primary,
+        required: Boolean = this.required,
+        name: String = this.name,
+        qualifiers: List<Any> = this.qualifiers
+    ): Component<T> = copy(
+        primary = primary,
+        required = required,
+        name = name,
+        qualifiers = qualifiers
+    )
 
     /**
      * Adds a setter dependency to this component.
@@ -147,11 +174,11 @@ data class Component<out T: Any> internal constructor(
      * @param A The type of the dependency to inject
      * @param type Type proxy representing the dependency type
      * @param required Whether this dependency is required (error if not found)
-     * @param qualifier Optional qualifier name to select a specific dependency
+     * @param qualifier Optional qualifier to select a specific dependency
      * @param setter Function to set the dependency on the component instance
      * @return A new Component with the added setter dependency
      */
-    fun <A> setting(type: TypeProxy<A>, required: Boolean=true, qualifier: String?=null, setter: T.(A) -> Unit): Component<T> {
+    fun <A> setting(type: TypeProxy<A>, required: Boolean=true, qualifier: Any?=null, setter: T.(A) -> Unit): Component<T> {
         @Suppress("UNCHECKED_CAST")
         return copy(
             fields=fields + listOf(Dependency(type.type, qualifier, required)),
@@ -163,25 +190,25 @@ data class Component<out T: Any> internal constructor(
      *
      * @param A The type of the dependency to inject
      * @param required Whether this dependency is required (error if not found)
-     * @param qualifier Optional qualifier name to select a specific dependency
+     * @param qualifier Optional qualifier to select a specific dependency
      * @param setter Function to set the dependency on the component instance
      * @return A new Component with the added setter dependency
      */
-    inline fun <reified A> setting(required: Boolean=true, qualifier: String?=null, noinline setter: T.(A) -> Unit): Component<T> =
+    inline fun <reified A> setting(required: Boolean=true, qualifier: Any?=null, noinline setter: T.(A) -> Unit): Component<T> =
         setting(TypeProxy<A>(), required, qualifier, setter)
 
     /**
-     * Qualifies a constructor dependency at the specified index with a qualifier name.
+     * Qualifies a constructor dependency at the specified index with a qualifier.
      *
      * This allows specific targeting of dependencies when multiple components
      * of the same type are available.
      *
      * @param index The zero-based index of the constructor argument to qualify
-     * @param qualifier The qualifier name to apply to the dependency
+     * @param qualifier The qualifier to apply to the dependency
      * @return A new Component with the updated qualified dependency
      * @throws IllegalArgumentException If the index is out of bounds or the dependency is not a Single
      */
-    fun requireQualified(index: Int, qualifier: String): Component<T> {
+    fun requireQualified(index: Int, qualifier: Any): Component<T> {
         if (index < 0 || index >= constructorArgs.size) {
             error("Index $index out of bounds for constructorArgs with size ${constructorArgs.size}")
         }
@@ -577,7 +604,7 @@ data class Component<out T: Any> internal constructor(
             define(type, args.toList(), null, construct)
 
         internal fun <T: Any> define(type: KType, args: List<Dependency>, name: String?, construct: Context.(List<Any?>) -> T): Component<T> {
-            return Component<T>(type, defaultName(type), namesOf(name), construct, args)
+            return Component<T>(type, (name ?: "").ifEmpty { defaultName(type) }, emptyList(), construct, args)
         }
 
         @PublishedApi
@@ -590,8 +617,6 @@ data class Component<out T: Any> internal constructor(
             (klass.simpleName?.replaceFirstChar { it.lowercase() } ?: "").ifEmpty { "unknown" }
 
         internal fun defaultName(type: KType): String = defaultName(type.classifier as KClass<*>)
-
-        internal fun namesOf(name: String?): List<String> = if (name.isNullOrEmpty()) emptyList() else listOf(name)
 
         private val anyType = typeOf<Any>()
     }

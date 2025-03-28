@@ -35,25 +35,25 @@ class QualifierApiTest {
 
     @Test
     fun testQualifierOnComponentDefinition() {
-        // Create components with multiple names (the secondary name acts as qualifier)
+        // Create components with a name and qualifier
         val mysqlComponent = Component { -> MySqlRepository() }
             .withSuperType<_, TestRepository>()
             .named("repository")
-            .named("mysql")
+            .qualified("mysql")
 
         val postgresComponent = Component { -> PostgresRepository() }
             .withSuperType<_, TestRepository>()
             .named("repository")
-            .named("postgres")
+            .qualified("postgres")
 
         // Check both have the same component name but different qualifiers
-        val expectedNames = listOf("repository", "mysql")
-        assertEquals(expectedNames.size, mysqlComponent.names.size)
-        assertTrue(mysqlComponent.names.containsAll(expectedNames))
+        assertEquals("repository", mysqlComponent.name)
+        assertEquals(1, mysqlComponent.qualifiers.size)
+        assertEquals("mysql", mysqlComponent.qualifiers[0])
 
-        val expectedPostgresNames = listOf("repository", "postgres")
-        assertEquals(expectedPostgresNames.size, postgresComponent.names.size)
-        assertTrue(postgresComponent.names.containsAll(expectedPostgresNames))
+        assertEquals("repository", postgresComponent.name)
+        assertEquals(1, postgresComponent.qualifiers.size)
+        assertEquals("postgres", postgresComponent.qualifiers[0])
     }
 
     @Test

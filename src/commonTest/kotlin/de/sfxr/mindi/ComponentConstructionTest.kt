@@ -28,15 +28,15 @@ class ComponentConstructionTest {
 
     @Test
     fun testComponentWithMultipleNames() {
-        // Create a component with multiple names using the builder API
+        // Create a component with a name and a qualifier using the builder API
         val component = Component { -> TestComponent() }
             .named("test_component")
-            .named("qualified_name")
+            .qualified("qualified_name")
 
-        // Check component names
-        assertEquals(2, component.names.size)
-        assertEquals("test_component", component.names[0])
-        assertEquals("qualified_name", component.names[1])
+        // Check component name and qualifiers
+        assertEquals("test_component", component.name)
+        assertEquals(1, component.qualifiers.size)
+        assertEquals("qualified_name", component.qualifiers[0])
     }
 
     @Test
