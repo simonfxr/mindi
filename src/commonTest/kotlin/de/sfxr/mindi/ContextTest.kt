@@ -4,11 +4,14 @@ import de.sfxr.mindi.annotations.Autowired
 import de.sfxr.mindi.annotations.EventListener
 import de.sfxr.mindi.annotations.PostConstruct
 import de.sfxr.mindi.annotations.PreDestroy
+import de.sfxr.mindi.events.ContextClosedEvent
+import de.sfxr.mindi.events.ContextRefreshedEvent
 import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 class ContextTest {
     class TestComponent {
@@ -226,5 +229,102 @@ class ContextTest {
         assertEquals(throwingListenerComponent, componentCaught)
 
         context.close()
+    }
+
+    @Test
+    fun testContextLifecycleEvents() {
+        // Create listeners that track both context events
+        class ContextEventsListener {
+            var refreshedEventReceived = false
+            var closedEventReceived = false
+            var refreshedContext: Context? = null
+            var closedContext: Context? = null
+
+            @EventListener
+            fun onContextRefreshed(event: ContextRefreshedEvent) {
+                refreshedEventReceived = true
+                refreshedContext = event.context
+            }
+
+            @EventListener
+            fun onContextClosed(event: ContextClosedEvent) {
+                closedEventReceived = true
+                closedContext = event.context
+            }
+        }
+
+        val listener = ContextEventsListener()
+        val component = Component { -> listener }
+            .listening<ContextRefreshedEvent> { onContextRefreshed(it) }
+            .listening<ContextClosedEvent> { onContextClosed(it) }
+            .named("contextEventsListener")
+
+        // Instantiate the context - should trigger ContextRefreshedEvent
+        val context = Context.instantiate(listOf(component))
+
+        // Verify ContextRefreshedEvent was received
+        assertTrue(listener.refreshedEventReceived, "ContextRefreshedEvent should be received")
+        assertNotNull(listener.refreshedContext, "Context should be available in the event")
+        assertEquals(context, listener.refreshedContext, "Context in event should match our context")
+
+        // Close the context - should trigger ContextClosedEvent
+        context.close()
+
+        // Verify ContextClosedEvent was received
+        assertTrue(listener.closedEventReceived, "ContextClosedEvent should be received")
+        assertNotNull(listener.closedContext, "Context should be available in the event")
+        assertEquals(context, listener.closedContext, "Context in event should match our context")
+    }
+
+    @Test
+    fun testContextCloseResilienceWithEventException() {
+        // Create a listener that throws an exception when it receives ContextClosedEvent
+        class ThrowingListener {
+            var closedMethodCalled = false
+
+            @EventListener
+            fun onContextClosed(event: ContextClosedEvent) {
+                closedMethodCalled = true
+                throw RuntimeException("Test exception from listener")
+            }
+        }
+
+        // Create a component that will be destroyed during context close
+        class CleanupComponent {
+            var destroyed = false
+
+            @PreDestroy
+            fun cleanup() {
+                destroyed = true
+            }
+        }
+
+        val throwingListener = ThrowingListener()
+        val cleanupComponent = CleanupComponent()
+
+        val listenerComponent = Component { -> throwingListener }
+            .listening<ContextClosedEvent> { onContextClosed(it) }
+            .named("throwingListener")
+
+        val cleanupComponentObj = Component { -> cleanupComponent }
+            .onClose { cleanup() }
+            .named("cleanupComponent")
+
+        // Create and immediately close the context
+        val context = Context.instantiate(listOf(listenerComponent, cleanupComponentObj))
+
+        // Close should not fail even though the event listener throws an exception
+        try {
+            context.close()
+        } catch (e: Exception) {
+            // The exception should be rethrown, but only after cleanup is done
+            assertTrue(cleanupComponent.destroyed, "Component should be properly destroyed despite event exception")
+            assertTrue(throwingListener.closedMethodCalled, "Event listener was called before exception")
+            throw e
+        }
+
+        // If no exception caught, verify both the event handler ran and component was destroyed
+        assertTrue(throwingListener.closedMethodCalled, "Event listener should be called")
+        assertTrue(cleanupComponent.destroyed, "Component should be properly destroyed")
     }
 }

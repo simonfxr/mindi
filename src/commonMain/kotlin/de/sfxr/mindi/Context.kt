@@ -1,5 +1,7 @@
 package de.sfxr.mindi
 
+import de.sfxr.mindi.events.ContextClosedEvent
+import de.sfxr.mindi.events.ContextRefreshedEvent
 import de.sfxr.mindi.internal.associateUnique
 import kotlinx.atomicfu.atomic
 import kotlin.concurrent.Volatile
@@ -264,6 +266,14 @@ class Context(
         if (_isClosed.getAndSet(true))
             return
 
+        // Publish ContextClosedEvent before components are destroyed
+        var eventPublishException = try {
+            publishEvent(ContextClosedEvent(this))
+            null
+        } catch (e: Exception) {
+            e
+        }
+
         var firstException: Exception? = null
         while (!instances.isEmpty()) {
             val v = instances.removeLast()
@@ -274,9 +284,14 @@ class Context(
                 firstException = firstException ?: e
             }
         }
-        if (firstException != null) {
-            throw firstException
+
+        if (eventPublishException != null) {
+            firstException?.addSuppressed(eventPublishException)
+            firstException = firstException ?: eventPublishException
         }
+
+        if (firstException != null)
+            throw firstException
     }
 
     companion object {
@@ -402,6 +417,7 @@ class Context(
                 }
 
                 context.isStarted = true
+                context.publishEvent(ContextRefreshedEvent(context))
                 return context
             } catch (e: Exception) {
                 try {
