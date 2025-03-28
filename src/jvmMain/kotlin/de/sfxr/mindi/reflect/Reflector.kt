@@ -100,7 +100,7 @@ fun <T: Any> Reflector.reflectConstructor(
         } else {
             val autowiredRequired = p.findFirstAnnotation(autowiredAnnotations)
             val required = autowiredRequired ?: (!p.isOptional && !p.type.isMarkedNullable)
-            Dependency(p.type, qualifier = p.findFirstAnnotation(qualifierAnnotations), required=required)
+            Dependency(p.type, qualifier=p.findFirstQualifierAnnotations(qualifierAnnotations), required=required)
         }
     }
 
@@ -150,10 +150,9 @@ fun <T: Any> Reflector.reflectConstructor(
 fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
     val klass = type.type.classifier as KClass<*>
     val name = (klass.findFirstAnnotation(componentAnnotations) ?: "").ifEmpty { Component.defaultName(klass) }
-    val qualifiers = HashSet(klass.findAllAnnotations(qualifierAnnotations)).apply {
-        remove(name)
+    val qualifiers = klass.findAllQualifierAnnotations(qualifierAnnotations).toList().let {
+        if (name in it) it - listOf(name) else it
     }
-    val qualifiersAny = qualifiers.map { it as Any }
     val primary = klass.hasAnyAnnotation(primaryAnnotations)
     val cons1 = klass.constructors.filter { c -> c.visibility == KVisibility.PUBLIC }
     val cons = if (cons1.size <= 1) cons1 else
@@ -164,7 +163,7 @@ fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
         cons.size > 1 -> throw IllegalArgumentException("Ambiguous constructor")
         else -> cons.first() as KFunction<T>
     }
-    return reflectConstructor(constructor, type, name=name, qualifiers=qualifiersAny, primary=primary)
+    return reflectConstructor(constructor, type, name=name, qualifiers=qualifiers, primary=primary)
 }
 
 /**
@@ -249,7 +248,9 @@ private fun Reflector.scanMembers(
         // Process injectable fields and setters
         val autowiredRequired = m.findFirstAnnotation(autowiredAnnotations) ?: javaField?.findFirstAnnotation(autowiredAnnotations)
         val valueExpression = if (autowiredRequired != null) null else m.findFirstAnnotation(valueAnnotations) ?: javaField?.findFirstAnnotation(valueAnnotations)
-        val qualifier = if (autowiredRequired == null) null else m.findFirstAnnotation(qualifierAnnotations) ?: javaField?.findFirstAnnotation(qualifierAnnotations)
+        val qualifier =
+            if (autowiredRequired == null) null
+            else m.findFirstQualifierAnnotations(qualifierAnnotations) ?: javaField?.findFirstQualifierAnnotations(qualifierAnnotations)
         if (autowiredRequired != null || valueExpression != null) {
             val isPrivate = m.visibility == KVisibility.PRIVATE
             if (m is KMutableProperty1<*, *>) {
