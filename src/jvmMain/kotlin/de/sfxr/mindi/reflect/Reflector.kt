@@ -111,12 +111,11 @@ fun <T: Any> Reflector.reflectConstructor(
     val listenerArgs = ArrayList<KType>()
     val listenerHandlers = ArrayList<Sink>()
     val superTypes = HashSet<KType>()
-    val processedProperties = HashSet<String>() // Track non-private property names to avoid duplication
 
     if (maybeExtendsAutoClosable(klass))
         close.value = { (it as? AutoCloseable)?.close() }
 
-    scanMembers(type.type, superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close, processedProperties)
+    scanMembers(type.type, superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close)
 
     return Component<T>(
         type = type.type,
@@ -182,6 +181,10 @@ inline fun <reified T: Any> Reflector.reflect(): Component<T> = reflect(TypeProx
 
 /**
  * Scans a class's members for special annotations and builds injection metadata.
+ *
+ * This method recursively processes class members including those from parent classes.
+ * It tracks already processed methods across the entire class hierarchy to prevent
+ * duplicate handlers for overridden methods.
  */
 private fun Reflector.scanMembers(
     type: KType,
@@ -192,7 +195,9 @@ private fun Reflector.scanMembers(
     listenerHandlers: MutableList<Sink>,
     postConstruct: Box<Callback?>,
     close: Box<Callback?>,
-    processedProperties: MutableSet<String> = HashSet()
+    processedProperties: MutableSet<String> = HashSet(),
+    processedListeners: MutableSet<Pair<String, KType>>  = HashSet(),
+    processedLifecycle: MutableSet<String>  = HashSet(),
 ) {
     val klass = type.classifier as KClass<*>
     if (type in superTypes)
@@ -217,11 +222,20 @@ private fun Reflector.scanMembers(
         val params = m.parameters
         val param1Type = params.getOrNull(1)?.type
         val param1Klass = param1Type?.classifier
+        val isPrivate = m.visibility == KVisibility.PRIVATE
 
         // Process event listener methods
         if (m.hasAnyAnnotation(eventListenerAnnotations) && params.size == 2 &&
             params[0].kind == KParameter.Kind.INSTANCE && param1Klass is KClass<*>
         ) {
+            // Skip if not private and already processed a listener with same name and parameter type
+            val listenerKey = m.name to param1Type
+            if (!isPrivate && listenerKey in processedListeners)
+                continue
+
+            if (!isPrivate)
+                processedListeners.add(listenerKey)
+
             if (m.visibility != KVisibility.PUBLIC)
                 runCatching { m.setAccessible() }
             listenerArgs.add(param1Type)
@@ -231,12 +245,24 @@ private fun Reflector.scanMembers(
 
         // Process lifecycle methods
         if (params.size == 1 && params[0].kind == KParameter.Kind.INSTANCE) {
-            if (m.visibility != KVisibility.PUBLIC)
-                runCatching { m.setAccessible() }
-            if (m.hasAnyAnnotation(postConstructAnnotations))
+            var added = false
+
+            if (m.hasAnyAnnotation(postConstructAnnotations) && (isPrivate || m.name !in processedLifecycle)) {
+                if (!isPrivate)
+                    processedLifecycle.add(m.name)
                 postConstructCbs.add { m.call(it) }
-            if (m.hasAnyAnnotation(preDestroyAnnotations))
+                added = true
+            }
+
+            if (m.hasAnyAnnotation(preDestroyAnnotations) && (isPrivate || m.name !in processedLifecycle)) {
+                if (!isPrivate)
+                    processedLifecycle.add(m.name)
                 closeCbs.add { m.call(it) }
+                added = true
+            }
+
+            if (added && m.visibility != KVisibility.PUBLIC)
+                runCatching { m.setAccessible() }
         }
 
         val javaField: KAnnotatedElement? = (m as? KProperty<*>)?.javaField?.let {
@@ -309,8 +335,11 @@ private fun Reflector.scanMembers(
 
     // Process parent classes
     for (parent in klass.supertypes)
-        scanMembers(substituteType(typeSubstitution, parent) ?: parent,
-            superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close, processedProperties)
+        scanMembers(
+            substituteType(typeSubstitution, parent) ?: parent,
+            superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close,
+            processedProperties, processedListeners, processedLifecycle,
+        )
 }
 
 /**
