@@ -67,32 +67,31 @@ class Plan internal constructor(
         internal fun build(componentSequence: Iterable<Component<*>>, parent: SharedContext?): Plan =
             Planning(componentSequence, parent).plan()
 
-        internal inline fun resolveSingleProvider(c: Component<*>?, all: List<Index>, dep: Dependency.Single, component: (Index) -> Component<*>): List<Index> {
-            val candidates = all.filter { dep.qualifier == null || component(it).isQualifiedBy(dep.qualifier) }
-            if (candidates.size == 1)
-                return candidates
-            else if (candidates.isEmpty() && dep.required)
-                throw IllegalStateException("Failed to find provider for ${dep.type}${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
-            else if (dep.qualifier != null)
-                throw IllegalStateException("Failed to find unique provider qualified '${dep.qualifier}' for ${dep.type}${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
+        internal inline fun resolveSingleProvider(c: Component<*>?, all: List<Index>, type: KType, qual: Any?, required: Boolean, component: (Index) -> Component<*>): List<Index> {
+            if (all.size == 1)
+                return all
+            else if (all.isEmpty() && required)
+                throw IllegalStateException("Failed to find provider for $type${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
+            else if (qual != null)
+                throw IllegalStateException("Failed to find unique provider qualified '$qual' for $type${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
 
             // Iterate dependencies level by level
             // Components at level k shadow all components at level > k
             // Find unique primary component at level k or unique non primary at level k
             // if neither is found, go to next level
             var depth = 0
-            while (candidates.isNotEmpty() && depth != Int.MAX_VALUE) {
-                val currentProviders = candidates.filter { it.depth == depth }
+            while (all.isNotEmpty() && depth != Int.MAX_VALUE) {
+                val currentProviders = all.filter { it.depth == depth }
                 val providers = currentProviders.filter { i -> component(i).primary }.takeIf { it.isNotEmpty() } ?: currentProviders
                 if (providers.size > 1)
-                    throw IllegalStateException("Providers for dependency ${dep.type} are ambiguous")
+                    throw IllegalStateException("Providers for dependency $type are ambiguous")
                 if (providers.size == 1)
                     return providers
-                depth = candidates.minOf { if (it.depth > depth) it.depth else Int.MAX_VALUE }
+                depth = all.minOf { if (it.depth > depth) it.depth else Int.MAX_VALUE }
             }
 
-            if (dep.required)
-                throw IllegalStateException("Failed to find provider for ${dep.type}")
+            if (required)
+                throw IllegalStateException("Failed to find provider for $type")
 
             return emptyList()
         }
@@ -170,7 +169,7 @@ class Plan internal constructor(
          * @param type The type to find providers for
          * @return List of indices pointing to components that provide this type
          */
-        private fun providers(type: KType): List<Index> {
+        private fun allProviders(type: KType): List<Index> {
             return byType[type] ?: run {
                 buildList {
                     for ((p, cs) in byConcreteType) {
@@ -187,6 +186,9 @@ class Plan internal constructor(
                 }
             }
         }
+
+        private fun providers(type: KType, qual: Any?) =
+            allProviders(type).let { ps -> if (qual == null) ps else ps.filter { component(it).isQualifiedBy(qual) } }
 
         /**
          * Working list of component instantiations being built
@@ -235,8 +237,8 @@ class Plan internal constructor(
          */
         private fun resolve(c: Component<*>, dep: Dependency): List<Index> = when (dep) {
             is Dependency.Value<*> -> emptyList()
-            is Dependency.Multiple -> {
-                val ps = providers(dep.type)
+            is Dependency.Multiple<*> -> {
+                val ps = providers(dep.type, dep.qualifier)
                 if (ps.isEmpty() && dep.required)
                     throw IllegalStateException("Failed to find provider for ${dep.type} required by ${c.name}: ${c.klass}")
                 ps
@@ -245,7 +247,7 @@ class Plan internal constructor(
         }
 
         private fun resolveSingleProvider(c: Component<*>, dep: Dependency.Single): List<Index> =
-            resolveSingleProvider(c, providers(dep.type), dep, this::component)
+            resolveSingleProvider(c, providers(dep.type, dep.qualifier), dep.type, dep.qualifier, dep.required, this::component)
 
         private enum class Phase {
             CONSTRUCT, LINK, INIT

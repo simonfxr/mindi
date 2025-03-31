@@ -51,6 +51,8 @@ import kotlin.reflect.typeOf
  */
 sealed class Dependency {
     abstract val type: KType
+    abstract val qualifier: Any?
+    abstract val required: Boolean
 
     /**
      * Gets the raw class of this dependency
@@ -72,6 +74,8 @@ sealed class Dependency {
         val default: T?
     ): Dependency() {
         override val type: KType get() = typeProxy.type
+        override val qualifier get() = null
+        override val required get() = false
     }
 
     /**
@@ -84,8 +88,8 @@ sealed class Dependency {
     @ConsistentCopyVisibility
     data class Single internal constructor(
         override val type: KType,
-        val qualifier: Any?,
-        val required: Boolean
+        override val qualifier: Any?,
+        override val required: Boolean
     ): Dependency()
 
     /**
@@ -96,9 +100,11 @@ sealed class Dependency {
      * @property required Whether this dependency is required (error if not found)
      */
     @ConsistentCopyVisibility
-    data class Multiple internal constructor(
+    data class Multiple<T: Any> internal constructor(
         override val type: KType,
-        val required: Boolean
+        override val qualifier: Any?,
+        override val required: Boolean,
+        val wrap: ((Map<String, *>) -> T),
     ): Dependency()
 
     companion object {
@@ -141,25 +147,6 @@ sealed class Dependency {
 }
 
 /**
- * A dummy map implementation used for type checking during dependency resolution.
- *
- * This map is only used for checking if a type is assignable from Map<String, Any>
- * during dependency resolution, particularly for identifying Multiple dependencies
- * that should be injected as maps. The methods are intentionally not implemented
- * as they are never called - only isInstance() is used on the class.
- */
-internal val dummyMap: Map<String, Any?> = object : Map<String, Any> {
-    override val size get() = 0
-    override val keys get() = TODO("Not yet implemented")
-    override val values get() = TODO("Not yet implemented")
-    override val entries get() = TODO("Not yet implemented")
-    override fun isEmpty() = TODO("Not yet implemented")
-    override fun containsKey(key: String) = TODO("Not yet implemented")
-    override fun containsValue(value: Any) = TODO("Not yet implemented")
-    override fun get(key: String) = TODO("Not yet implemented")
-}
-
-/**
  * Creates a dependency for a type with optional qualifier and required flags.
  *
  * @param type The constructor/setter argument type including generic type information
@@ -168,19 +155,19 @@ internal val dummyMap: Map<String, Any?> = object : Map<String, Any> {
  * @return The appropriate Dependency type based on the input type
  */
 fun Dependency(type: KType, qualifier: Any? = null, required: Boolean = true): Dependency {
-    // Special handling for Map<String, T> types which become Multiple dependencies
-    val classifier = type.classifier
-    if (classifier is KClass<*> && classifier.isInstance(dummyMap)) {
-        type.arguments.takeIf { it.size == 2 }?.let { (kt, vt) ->
-            if (kt.type == typeOf<String>()) {
-                val valueType = vt.type
-                if (valueType != null) {
-                    return Dependency.Multiple(valueType, required)
-                }
-            }
-        }
+    // Special handling for Collection<T> types
+    when (type.classifier) {
+        Map::class -> type.arguments.takeIf { it.size == 2 }
+            ?.let { (kt, vt) ->
+            vt.type?.takeIf { kt.type == typeOf<String>() }
+            ?.let { ct -> return Dependency.Multiple(ct, qualifier, required) { it } } }
+        List::class -> type.arguments.takeIf { it.size == 1 }
+            ?.let { (vt) -> vt.type
+            ?.let { ct -> return Dependency.Multiple(ct, qualifier, required) { it.values } } }
+        Set::class -> type.arguments.takeIf { it.size == 1 }
+            ?.let { (vt) -> vt.type
+            ?.let { ct -> return Dependency.Multiple(ct, qualifier, required) { it.values.toSet() } } }
     }
-
     // Standard dependency
     return Dependency.Single(type, qualifier, required)
 }

@@ -8,7 +8,7 @@ class DependencyTest {
     @Test
     fun testMapDependency() {
         val dep = Dependency(typeOf<Map<String, AutoCloseable>>())
-        assertIs<Dependency.Multiple>(dep)
+        assertIs<Dependency.Multiple<*>>(dep)
         assertEquals(AutoCloseable::class, dep.klass)
     }
 

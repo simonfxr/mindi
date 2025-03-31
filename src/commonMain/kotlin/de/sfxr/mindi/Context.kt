@@ -149,15 +149,22 @@ class Context(
      * @return The resolved component instance, or null if not found
      */
     fun <T : Any> getOrNull(type: TypeProxy<T>, qualifier: String? = null): T? {
-        val dependency = Dependency(type.type, qualifier) as Dependency.Single
-        val location = findComponentIndices(dependency).firstOrNull() ?: return null
         @Suppress("UNCHECKED_CAST")
-        return if (location.depth == 0) {
-            instances[location.index]
-        } else {
-            parents[location.depth - 1].instances[location.index]
-        } as T
+        return getOrNull(Dependency(type.type, qualifier)) as T?
     }
+
+    private fun getOrNull(dep: Dependency): Any? {
+        val locations = findComponentIndices(dep.type, dep.qualifier)
+        return when (dep) {
+            is Dependency.Single ->
+                instanceAt(locations.firstOrNull() ?: return null)!!
+            is Dependency.Multiple<*> ->
+                dep.wrap(locations.associateUnique { shared.componentAt(it).name to instanceAt(it)!! })
+            is Dependency.Value<*> -> error("UNREACHABLE")
+        }
+    }
+
+    private fun instanceAt(i: Index): Any? = with(shared) { instanceAt(i.depth, i.index) }
 
     /**
      * Gets all components of the specified type from the context.
@@ -178,20 +185,12 @@ class Context(
      * The map will be empty if no matching components are found.
      *
      * @param type The type of components to retrieve
+     * @param qualifier Optional qualifier to filter for
      * @return Map of component names to instances
      */
-    fun <T : Any> getAll(type: TypeProxy<T>): Map<String, T> {
-        val indices = findByType(type.type).takeIf { it.isNotEmpty() } ?: return emptyMap()
-        return buildMap {
-            for (index in indices) {
-                val component = shared.componentsTable[index.depth][index.index]
-                @Suppress("UNCHECKED_CAST")
-                this[component.name] = if (index.depth == 0)
-                    instances[index.index] as T
-                else
-                    parents[index.depth - 1].instances[index.index] as T
-            }
-        }
+    fun <T : Any> getAll(type: TypeProxy<T>, qualifier: Any? = null): Map<String, T> {
+        @Suppress("UNCHECKED_CAST")
+        return getOrNull(Dependency.Multiple<Map<String, *>>(type.type, qualifier, false) { it }) as Map<String, T>
     }
 
     /**
@@ -203,8 +202,8 @@ class Context(
      * @param dependency The dependency to resolve
      * @return List of indices pointing to matching components
      */
-    private fun findComponentIndices(dependency: Dependency.Single): List<Instantiation.Index> =
-        Plan.resolveSingleProvider(null, findByType(dependency.type), dependency.copy(required=false)) {
+    private fun findComponentIndices(type: KType, qual: Any?): List<Instantiation.Index> =
+        Plan.resolveSingleProvider(null, findByType(type), type, qual, required=false) {
             shared.componentsTable[it.depth][it.index]
         }
 
@@ -400,7 +399,7 @@ class Context(
                         when (d) {
                             is Dependency.Value<*> -> values[j]
                             is Dependency.Single -> if (argIndices[j].isEmpty()) null else instance(argIndices[j].first())
-                            is Dependency.Multiple -> argIndices[j].associateUnique { plan.component(it).name to instance(it) }
+                            is Dependency.Multiple<*> -> d.wrap(argIndices[j].associateUnique { plan.component(it).name to instance(it) })
                         }
                     }
 

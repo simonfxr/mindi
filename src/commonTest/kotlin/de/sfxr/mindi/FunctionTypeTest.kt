@@ -92,18 +92,18 @@ class FunctionTypeTest {
     }
 
     // Test for generic types
-    class Repository<T>(val items: List<T>)
+    class Repository<T>(val items: Collection<T>)
 
     class StringRepository(val repository: Repository<String>)
 
     @Test
     fun testGenericTypeInjection() {
         // This component provides a List<String>
-        val stringsComponent = Component { -> listOf("one", "two", "three") }
+        val stringsComponent = Component { -> listOf("one", "two", "three") as Collection<String> }
             .named("stringList")
 
         // This component depends on a List<String> - using constructing to specify the qualified dependency
-        val repositoryComponent = Component { l: List<String> -> Repository(l) }
+        val repositoryComponent = Component { l: Collection<String> -> Repository(l) }
             .requireQualified(0, "stringList")
             .named("stringRepository")
 
@@ -132,7 +132,7 @@ class FunctionTypeTest {
         assertNotNull(typedRepo)
 
         // Test the repository contents
-        val items = typedRepo.repository.items
+        val items = typedRepo.repository.items.toList()
         assertEquals(3, items.size)
         assertEquals("one", items[0])
         assertEquals("two", items[1])

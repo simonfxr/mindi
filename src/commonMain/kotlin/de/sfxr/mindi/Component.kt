@@ -213,12 +213,16 @@ data class Component<out T: Any> internal constructor(
             error("Index $index out of bounds for constructorArgs with size ${constructorArgs.size}")
         }
         val arg = constructorArgs[index]
-        if (arg !is Dependency.Single) {
-            error("Constructor argument at index $index is not a Single dependency")
+        when (arg) {
+            is Dependency.Single -> {}
+            is Dependency.Multiple<*> -> {}
+            else -> error("Constructor argument at index $index does not support qualifier")
         }
         return copy(constructorArgs = constructorArgs.mapIndexed { i, dep ->
             if (i == index && dep is Dependency.Single) {
                 Dependency.Single(dep.type, qualifier, dep.required)
+            } else if (i == index && dep is Dependency.Multiple<*>) {
+                Dependency.Multiple(dep.type, qualifier, dep.required, dep.wrap)
             } else {
                 dep
             }
