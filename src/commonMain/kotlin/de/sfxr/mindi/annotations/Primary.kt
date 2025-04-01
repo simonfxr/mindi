@@ -25,5 +25,5 @@ package de.sfxr.mindi.annotations
  */
 @MustBeDocumented
 @Retention(AnnotationRetention.RUNTIME)
-@Target(AnnotationTarget.CLASS)
+@Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
 annotation class Primary

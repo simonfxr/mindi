@@ -84,14 +84,14 @@ class Plan internal constructor(
                 val currentProviders = all.filter { it.depth == depth }
                 val providers = currentProviders.filter { i -> component(i).primary }.takeIf { it.isNotEmpty() } ?: currentProviders
                 if (providers.size > 1)
-                    throw IllegalStateException("Providers for dependency $type are ambiguous")
+                    throw IllegalStateException("Providers for dependency $type are ambiguous${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
                 if (providers.size == 1)
                     return providers
                 depth = all.minOf { if (it.depth > depth) it.depth else Int.MAX_VALUE }
             }
 
             if (required)
-                throw IllegalStateException("Failed to find provider for $type")
+                throw IllegalStateException("Failed to find provider for $type${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
 
             return emptyList()
         }

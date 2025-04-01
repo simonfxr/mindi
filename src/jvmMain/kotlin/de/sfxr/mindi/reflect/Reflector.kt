@@ -8,7 +8,6 @@ import kotlin.reflect.*
 import kotlin.reflect.full.createType
 import kotlin.reflect.full.declaredMembers
 import kotlin.reflect.full.starProjectedType
-import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.jvm.javaField
 import de.sfxr.mindi.annotations.Component as ComponentAnnotation
 
@@ -27,6 +26,7 @@ import de.sfxr.mindi.annotations.Component as ComponentAnnotation
  * @property valueAnnotations Annotations that mark fields/parameters for value injection
  * @property qualifierAnnotations Annotations used to qualify dependencies
  * @property eventListenerAnnotations Annotations that mark methods as event listeners
+ * @property beanAnnotations Annotations that mark factory methods as bean definitions
  */
 data class Reflector(
     val autowiredAnnotations: List<AnnotationOf<Boolean>>,
@@ -37,6 +37,7 @@ data class Reflector(
     val valueAnnotations: List<AnnotationOf<String>>,
     val qualifierAnnotations: List<AnnotationOf<Any>>,
     val eventListenerAnnotations: List<TagAnnotation>,
+    val beanAnnotations: List<AnnotationOf<String>>,
 ) {
     companion object {
         /**
@@ -51,6 +52,7 @@ data class Reflector(
             valueAnnotations = listOf(AnnotationOf.valued<Value, _> { it.value }),
             qualifierAnnotations = listOf(AnnotationOf.valued<Qualifier, Any> { it.value }),
             eventListenerAnnotations = listOf(AnnotationOf.tagged<EventListener>()),
+            beanAnnotations = listOf(AnnotationOf.valued<Bean, _> { it.value }),
         )
     }
 }
@@ -67,10 +69,11 @@ data class Reflector(
  */
 inline fun <reified T: Any> Reflector.reflectConstructor(
     constructor: KFunction<T>,
+    receiver: Any? = null,
     name: String = "",
     qualifiers: List<Any> = emptyList(),
     primary: Boolean = false
-): Component<T> = reflectConstructor(constructor, TypeProxy<T>(), name, qualifiers, primary)
+): Component<T> = reflectConstructor(constructor, TypeProxy<T>(), receiver, name, qualifiers, primary)
 
 /**
  * Reflects on a class and constructor to create a Component definition.
@@ -86,14 +89,17 @@ inline fun <reified T: Any> Reflector.reflectConstructor(
 fun <T: Any> Reflector.reflectConstructor(
     constructor: KFunction<T>,
     type: TypeProxy<T>,
+    receiver: Any? = null,
     name: String = "",
     qualifiers: List<Any> = emptyList(),
     primary: Boolean = false
 ): Component<T> {
     check(!constructor.isSuspend)
     val klass = type.type.classifier as KClass<*>
-    val construct: Context.(List<Any?>) -> T = { args -> construct(constructor, args) }
-    val constructorArgs: List<Dependency> = constructor.parameters.map { p ->
+    val construct: Context.(List<Any?>) -> T =
+        if (receiver == null) { args -> construct(constructor, args) }
+        else { args -> construct(constructor, listOf(receiver) + args) }
+    val constructorArgs: List<Dependency> = constructor.parameters.drop((receiver != null).compareTo(false)).map { p ->
         val valueExpression = p.findFirstAnnotation(valueAnnotations)
         if (valueExpression != null) {
             Dependency.parseValueExpressionFor(TypeProxy(p.type), valueExpression, name, type.type)
@@ -178,6 +184,67 @@ fun <T: Any> Reflector.reflect(klass: KClass<T>): Component<T> {
  * See [reflect]
  */
 inline fun <reified T: Any> Reflector.reflect(): Component<T> = reflect(TypeProxy<T>())
+
+/**
+ * Reflects on an object or class instance to find all @Bean methods and create Component definitions.
+ *
+ * This method scans the object or class for methods annotated with @Bean and creates a Component
+ * definition for each one. The component type is the return type of the factory method.
+ *
+ * The @Bean annotation works similarly to Spring's @Bean, allowing you to define components
+ * programmatically in configuration objects:
+ *
+ * ```kotlin
+ * object AppConfig {
+ *     @Bean
+ *     fun dataSource(): DataSource = BasicDataSource().apply {
+ *         url = "jdbc:h2:mem:test"
+ *         username = "sa"
+ *     }
+ *
+ *     @Bean
+ *     fun userRepository(dataSource: DataSource): UserRepository =
+ *         JdbcUserRepository(dataSource)
+ *
+ *     @Bean("auditService")
+ *     @Qualifier("production")
+ *     @Primary
+ *     fun createAuditService(): AuditService =
+ *         ProductionAuditService()
+ * }
+ *
+ * // Get all bean components
+ * val components = Reflector.Default.reflectFactory(AppConfig)
+ * ```
+ *
+ * Key features:
+ * - Method parameters are treated as dependencies and will be autowired
+ * - @Bean methods can be customized with @Qualifier, @Primary, etc.
+ * - Custom bean names can be specified in the @Bean annotation
+ *
+ * **Important difference from Spring**: Unlike Spring's @Bean methods, Mindi's implementation does
+ * not use runtime proxies to cache bean instances. In Spring, when one @Bean method calls another
+ * @Bean method internally, the container intercepts the call and returns the cached instance. In
+ * Mindi, each @Bean method call creates a new instance. To share instances between beans, inject
+ * them as dependencies instead of calling @Bean methods directly.
+ *
+ * @param factory The object or class instance containing @Bean factory methods
+ * @return List of Component definitions created from the factory methods
+ */
+fun Reflector.reflectFactory(factory: Any): List<Component<*>> =
+    factory::class.members.mapNotNull next@{ member ->
+        if (member !is KFunction<*> || member.isSuspend) return@next null
+        val name = member.findFirstAnnotation(beanAnnotations) ?: return@next null
+        @Suppress("UNCHECKED_CAST")
+        reflectConstructor(
+            member as KFunction<Any>,
+            TypeProxy<Any>(member.returnType),
+            receiver = factory,
+            name = name.ifEmpty { member.name.replaceFirstChar { it.lowercase() } },
+            qualifiers = member.findAllQualifierAnnotations(qualifierAnnotations).toList(),
+            primary = member.hasAnyAnnotation(primaryAnnotations),
+        )
+    }
 
 /**
  * Scans a class's members for special annotations and builds injection metadata.
@@ -288,7 +355,7 @@ private fun Reflector.scanMembers(
 
                 val setter = m.setter
                 m.setAccessible()
-                setter.isAccessible = true
+                setter.setAccessible()
                 val fieldType = m.returnType
                 if (valueExpression != null)
                     fields.add(Dependency.parseValueExpressionFor(TypeProxy(fieldType), valueExpression, null, type))

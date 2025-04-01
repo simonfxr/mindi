@@ -13,6 +13,7 @@ The framework's standout feature is its static dependency resolution system, whi
 - **Fail-Fast Validation**: Build and validate component graphs at application startup, catching configuration errors early
 - **Multiplatform Support**: Works on JVM, Native, and JS
 - **Annotation-based Component Scanning**: Automatic discovery of components using annotations (JVM)
+- **@Bean Factory Methods**: Define beans programmatically in configuration objects
 - **Functional API**: Define components using Kotlin's type-safe DSL
 - **Hierarchical Contexts**: Parent-child relationships for modular applications
 - **Value Resolution**: Environment variable and property substitution
@@ -116,6 +117,7 @@ On the JVM, you can use annotations for a Spring-like experience with component 
 ```kotlin
 import de.sfxr.mindi.annotations.*
 import de.sfxr.mindi.reflect.ComponentScanner
+import de.sfxr.mindi.reflect.Reflector
 import de.sfxr.mindi.Context
 import de.sfxr.mindi.Plan
 
@@ -183,13 +185,41 @@ class DatabaseConnection(
 data class User(val id: String, val name: String)
 data class UserCreatedEvent(val userId: String)
 
+// Define beans programmatically with @Bean annotation
+object AppConfig {
+    @Bean
+    fun dataSource(): DataSource {
+        return BasicDataSource().apply {
+            url = "jdbc:h2:mem:test"
+            username = "sa"
+        }
+    }
+
+    @Bean
+    fun userRepository(dataSource: DataSource): UserRepository {
+        return JdbcUserRepository(dataSource)
+    }
+
+    @Bean("auditService")
+    @Qualifier("production")
+    fun createAuditService(): AuditService {
+        return ProductionAuditService()
+    }
+}
+
 // Application setup
 fun main() {
     // Scan for components in package
     val components = ComponentScanner.findComponents(listOf("com.example.app"))
 
+    // Add beans from configuration object
+    val beanComponents = Reflector.reflectFactory(AppConfig)
+
+    // Combine all components
+    val allComponents = components + beanComponents
+
     // Create and use the context with automatic resource management
-    Context.instantiate(components).use { context ->
+    Context.instantiate(allComponents).use { context ->
         // Get and use components
         val userService = context.get<UserService>()
         val user = userService.getUser("1")
@@ -327,6 +357,7 @@ If you're familiar with Spring Framework, mindi provides many similar features:
 - `@PostConstruct` = Spring's `@PostConstruct`
 - `@PreDestroy` = Spring's `@PreDestroy`
 - `@EventListener` = Spring's `@EventListener`
+- `@Bean` = Spring's `@Bean`
 - `ComponentScanner` = Spring's component scanning
 
 Key differences:
