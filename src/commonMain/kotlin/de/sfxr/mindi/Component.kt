@@ -2,6 +2,7 @@ package de.sfxr.mindi
 
 import de.sfxr.mindi.internal.compose
 import kotlin.reflect.KClass
+import kotlin.reflect.KMutableProperty1
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
@@ -67,17 +68,19 @@ typealias Callback = (Any) -> Unit
  * and reported as errors.
  *
  * @param T The type of the component
- * @property klass The Kotlin class of the component
- * @property primary Whether this component is the primary implementation for its type
+ * @property type The Kotlin type of the component
+ * @property name The name identifier for this component (for qualification)
+ * @property qualifiers Additional qualifiers for this component
  * @property construct Function to construct a new instance of the component
  * @property constructorArgs Dependencies needed for constructor injection
+ * @property superTypes Collection of additional types this component can be used as
+ * @property primary Whether this component is the primary implementation for its type
  * @property fields Dependencies needed for field/setter injection
  * @property setters Functions to set values on component instances
  * @property listenerArgs Event types this component listens for
  * @property listenerHandlers Functions to handle events
  * @property postConstruct Callback executed after construction and dependency injection
  * @property close Callback executed before component destruction
- * @property names Identifiers for this component (for qualification)
  * @property required Whether this component must be instantiated
  */
 @ConsistentCopyVisibility
@@ -186,6 +189,31 @@ data class Component<out T: Any> internal constructor(
     }
 
     /**
+     * Adds a setter dependency to this component using a property reference.
+     *
+     * @param A The type of the dependency to inject
+     * @param property The mutable property to set with the dependency
+     * @param required Whether this dependency is required (error if not found)
+     * @param qualifier Optional qualifier to select a specific dependency
+     * @return A new Component with the added setter dependency
+     */
+    inline fun <reified A> setting(property: KMutableProperty1<in T, A>, required: Boolean=true, qualifier: Any?=null): Component<T> =
+        setting(TypeProxy<A>(), property, required, qualifier)
+
+    /**
+     * Adds a setter dependency to this component using a property reference and explicit type.
+     *
+     * @param A The type of the dependency to inject
+     * @param type Type proxy representing the dependency type
+     * @param property The mutable property to set with the dependency
+     * @param required Whether this dependency is required (error if not found)
+     * @param qualifier Optional qualifier to select a specific dependency
+     * @return A new Component with the added setter dependency
+     */
+    fun <A> setting(type: TypeProxy<A>, property: KMutableProperty1<in T, A>, required: Boolean=true, qualifier: Any?=null): Component<T> =
+        setting(type, required, qualifier) { property.set(this, it) }
+
+    /**
      * Adds a setter dependency to this component with reified type parameter.
      *
      * @param A The type of the dependency to inject
@@ -206,7 +234,7 @@ data class Component<out T: Any> internal constructor(
      * @param index The zero-based index of the constructor argument to qualify
      * @param qualifier The qualifier to apply to the dependency
      * @return A new Component with the updated qualified dependency
-     * @throws IllegalArgumentException If the index is out of bounds or the dependency is not a Single
+     * @throws IllegalArgumentException If the index is out of bounds or the dependency does not support qualification
      */
     fun requireQualified(index: Int, qualifier: Any): Component<T> {
         if (index < 0 || index >= constructorArgs.size) {
@@ -626,5 +654,45 @@ data class Component<out T: Any> internal constructor(
     }
 }
 
+/**
+ * Extension function to add a supertype to a component using reified type parameters.
+ *
+ * This allows the component to be injected as the specified supertype U.
+ * Particularly useful when working with interfaces, abstract classes, or
+ * function types with variance (covariance or contravariance).
+ *
+ * Example with interface implementation:
+ * ```kotlin
+ * // Interface and implementation
+ * interface MessageRepository { fun getMessage(id: String): String }
+ * class SimpleMessageRepository : MessageRepository {
+ *     override fun getMessage(id: String) = "Hello, $id!"
+ * }
+ *
+ * // Create component and register it as its interface type
+ * val repositoryComponent = Component { -> SimpleMessageRepository() }
+ *     .withSuperType<_, MessageRepository>()
+ *     .named("messageRepository")
+ * ```
+ *
+ * Example with function type covariance:
+ * ```kotlin
+ * // Classes with inheritance
+ * open class Animal(val name: String)
+ * class Dog(name: String, val breed: String) : Animal(name)
+ *
+ * // Function that returns a subtype
+ * val dogProvider: () -> Dog = { Dog("Buddy", "Golden Retriever") }
+ *
+ * // Register as the parent return type
+ * val dogProviderComponent = Component { -> dogProvider }
+ *     .withSuperType<_, () -> Animal>()
+ *     .named("animalProvider")
+ * ```
+ *
+ * @param T The component type that inherits from U
+ * @param U The supertype to add to the component
+ * @return A new component with the added supertype
+ */
 inline fun <T, reified U: Any> Component<T>.withSuperType(): Component<T> where T: U =
     withSuperType(TypeProxy<U>())

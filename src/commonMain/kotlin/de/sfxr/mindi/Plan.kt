@@ -98,7 +98,15 @@ class Plan internal constructor(
     }
 
 
-    /** The component definitions in this plan */
+    /**
+     * The component definitions contained in this plan.
+     *
+     * This list contains all components that will be instantiated when executing
+     * the plan, ordered in a way that ensures dependencies are created before
+     * the components that depend on them.
+     *
+     * @return List of component definitions
+     */
     val components get() = shared.components
 
     /**
@@ -209,14 +217,19 @@ class Plan internal constructor(
         private val slotComponent = ArrayList<Int>(components.size)
 
         /**
-         * If false object not yet scheduled for construction or fields/post construct not yet called
+         * Tracks the phase of each component:
+         * null: not processed
+         * CONSTRUCT: constructed but not linked or initialized
+         * LINK: constructed and linked but not initialized
+         * INIT: fully constructed, linked, and initialized
          */
-        private val linked = BooleanArray(components.size)
+        private val phases = Array<Phase?>(components.size) { null }
 
         /**
-         * If false object not yet scheduled for construction or fields/post construct not yet called
+         * Tracks the target phase for each component during dependency resolution.
+         * This is used to properly identify the phase being attempted when a cycle is detected.
          */
-        private val initialized = BooleanArray(components.size)
+        private val wantedPhases = Array(components.size) { Phase.CONSTRUCT }
 
         /**
          * Looks up a component definition in the component hierarchy
@@ -231,6 +244,7 @@ class Plan internal constructor(
         /**
          * Resolves a dependency to the components that satisfy it.
          *
+         * @param c The component requesting the dependency
          * @param dep The dependency to resolve
          * @return List of indices pointing to components that satisfy the dependency
          * @throws IllegalStateException if the dependency cannot be satisfied or is ambiguous
@@ -249,19 +263,34 @@ class Plan internal constructor(
         private fun resolveSingleProvider(c: Component<*>, dep: Dependency.Single): List<Index> =
             resolveSingleProvider(c, providers(dep.type, dep.qualifier), dep.type, dep.qualifier, dep.required, this::component)
 
-        private enum class Phase {
-            CONSTRUCT, LINK, INIT
+        /**
+         * Component lifecycle phases, each phase depends on the previous one.
+         *
+         * The component lifecycle progresses through these phases in sequence:
+         * - CONSTRUCT: Object has been constructed via constructor
+         * - LINK: Object's field dependencies have been set ("linked")
+         * - INIT: Object has been fully initialized (post-construct callbacks called)
+         *
+         * @property description Human-readable name for the phase (used in error messages)
+         */
+        private enum class Phase(val description: String): Comparable<Phase> {
+            CONSTRUCT("construct"), LINK("fields"), INIT("init")
         }
 
         /**
-         * Wrapper for instantiate_ that returns the index
+         * Wrapper for instantiate_ that returns the index.
+         *
+         * @param level Current recursion level
+         * @param index Component index to instantiate
+         * @param phase Target phase to reach
+         * @return The same index for chaining
          */
         private fun instantiate(level: Int, index: Index, phase: Phase): Index {
             if (index.depth != 0)
                 return index
-            instantiate_(level, index.index, Phase.CONSTRUCT)
-            if (phase.ordinal >= Phase.LINK.ordinal) instantiate_(level, index.index, Phase.LINK)
-            if (phase.ordinal >= Phase.INIT.ordinal) instantiate_(level, index.index, Phase.INIT)
+            instantiate_(level, index.index, Phase.CONSTRUCT, phase)
+            if (phase >= Phase.LINK) instantiate_(level, index.index, Phase.LINK, phase)
+            if (phase >= Phase.INIT) instantiate_(level, index.index, Phase.INIT, phase)
             return index
         }
 
@@ -269,79 +298,73 @@ class Plan internal constructor(
          * Adds a component to the instantiation list, resolving its constructor or field dependencies.
          * Handles dependency cycles by marking components being processed.
          *
-         * @param level Current recursion level
+         * @param l Current recursion level
          * @param i Index of the component to instantiate
-         * @param phase phase
+         * @param phase Current phase being processed
+         * @param wanted Target phase to reach
          */
-        private fun instantiate_(level: Int, i: Int, phase: Phase) {
+        private fun instantiate_(l: Int, i: Int, phase: Phase, wanted: Phase) {
             val curSlot = componentSlot[i]
-            val currentPhase = when {
-                initialized[i] -> Phase.INIT
-                linked[i] -> Phase.LINK
-                curSlot >= 0 -> Phase.CONSTRUCT
-                else -> null
-            }
-            if (currentPhase != null && currentPhase.ordinal >= phase.ordinal)
+            val currentPhase = phases[i]
+            if (currentPhase != null && currentPhase >= phase)
                 return
             val c = components[i]
             if (curSlot < -1) {
-                fun phaseAt(k: Int): String {
-                    return if (initialized[k]) "init"
-                    else if (linked[k]) "fields"
-                    else "construct"
-                }
                 // Find all components currently being instantiated (they form the cycle)
                 val cycleComponents: List<Pair<Component<*>, String>> = componentSlot.withIndex()
                     .filter { (_, v) -> v <= curSlot } // All components being instantiated (have negative values less than -1)
                     .sortedBy { (_, v) -> -v }    // Sort by slot values to get dependency order
-                    .map { (i, _) -> components[i] to phaseAt(i) } + listOf(c to (when(phase) {
-                        Phase.CONSTRUCT -> "construct"
-                        Phase.LINK -> "fields"
-                        Phase.INIT -> "init"
-                    }))
-
-                val cycleDescription = cycleComponents.joinToString(" → ") { (comp, phase) ->
-                    "$phase ${comp.name}: ${comp.klass.qualifiedOrSimpleName()}"
+                    .map { (k, v) -> components[k] to (if (v == -2) Phase.INIT else wantedPhases[k]).description } +
+                    listOf(c to wanted.description)
+                val cycleDescription = cycleComponents.joinToString(" → ") { (comp, phaseName) ->
+                    "$phaseName ${comp.name}: ${comp.klass.qualifiedOrSimpleName()}"
                 }
                 throw DependencyCycleException(cycleComponents, "Circular dependency detected: $cycleDescription")
             }
-            componentSlot[i] = -(2 + level)
+            val prevWanted = wantedPhases[i]
+            wantedPhases[i] = wanted
+            componentSlot[i] = -(2 + l)
             val slot: Int
             when (phase) {
                 Phase.CONSTRUCT -> {
-                    val args = c.constructorArgs.map { resolveAll(level + 1, c, it, Phase.INIT) }
+                    val args = c.constructorArgs.map { require(l + 1, c, it, Phase.INIT) }
                     slot = slotComponent.size
                     instantiations.add(Instantiation(-1, args))
                     slotComponent.add(i)
                     componentSlot[i] = slot
-                    if (c.fields.isEmpty()) {
-                        linked[i] = true
-                        initialized[i] = c.postConstruct == null
-                    }
+                    phases[i] = Phase.CONSTRUCT
+                    if (c.fields.isEmpty())
+                        phases[i] = if (c.postConstruct == null) Phase.INIT else Phase.LINK
                 }
                 Phase.LINK -> {
                     slot = curSlot
-                    if (c.fields.isNotEmpty()) {
-                        val args = c.fields.map { resolveAll(level + 1, c, it, Phase.CONSTRUCT) }
-                        instantiations.add(Instantiation(slot, args))
-                    }
-                    linked[i] = true
-                    initialized[i] = c.postConstruct == null
+                    phases[i] = Phase.LINK // consider it already linked => fields can't cause cycles
+                    if (c.fields.isNotEmpty())
+                        instantiations.add(Instantiation(slot, c.fields.map { require(l + 1, c, it, Phase.LINK) }))
+                    if (c.postConstruct == null)
+                        phases[i] = Phase.INIT
                 }
                 Phase.INIT -> {
                     slot = curSlot
-                    c.fields.forEach { resolveAll(level + 1, c, it, Phase.LINK) }
+                    c.fields.forEach { require(l + 1, c, it, Phase.LINK) }
                     instantiations.add(Instantiation(-slot - 2, emptyList()))
-                    initialized[i] = true
+                    phases[i] = Phase.INIT
                 }
             }
             componentSlot[i] = slot
+            wantedPhases[i] = prevWanted
         }
 
         /**
          * Resolves all components needed for a dependency and ensures they are instantiated
+         *
+         * @param level Current recursion level
+         * @param c Component requesting the dependency
+         * @param f Dependency to resolve
+         * @param phase Target phase for the dependency
+         * @return List of index values for components that satisfy the dependency
          */
-        private fun resolveAll(level: Int, c: Component<*>, f: Dependency, phase: Phase) =
+        private fun require(level: Int, c: Component<*>, f: Dependency, phase: Phase) =
             resolve(c, f).map { instantiate(level, it, phase) }
 
         /**
