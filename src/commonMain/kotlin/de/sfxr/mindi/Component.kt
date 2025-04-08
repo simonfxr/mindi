@@ -282,13 +282,13 @@ data class Component<out T: Any> internal constructor(
      * @return A new Component with the updated value dependency
      * @throws IllegalArgumentException If the index is out of bounds
      */
-    fun requireValue(index: Int, expression: String): Component<T> {
+    fun requireValue(index: Int, expression: String, valueParser: ValueResolver=ValueResolver.Empty): Component<T> {
         if (index < 0 || index >= constructorArgs.size) {
             error("Index $index out of bounds for constructorArgs with size ${constructorArgs.size}")
         }
         val arg = constructorArgs[index]
         val valueDependency = try {
-            Dependency.parseValueExpressionFor(TypeProxy(arg.type), expression, name, type)
+            Dependency.parseValueExpressionFor(TypeProxy(arg.type), expression, name, type, valueParser)
         } catch(e: Exception) {
             throw RuntimeException("failed to parse value expression for ${name}: ${klass}: $expression", e)
         }

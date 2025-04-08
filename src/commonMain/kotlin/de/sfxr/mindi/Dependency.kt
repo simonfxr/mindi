@@ -119,26 +119,28 @@ sealed class Dependency {
          * @param expression The input string to parse
          * @return A Value dependency that will resolve the value
          */
-        fun <T: Any> parseValueExpression(type: TypeProxy<T>, expression: String): Value<T> {
+        fun <T: Any> parseValueExpression(type: TypeProxy<T>, expression: String, valueParser: ValueResolver=ValueResolver.Empty): Value<T> {
             if (expression.startsWith("\${") && expression.endsWith("}")) {
                 val content = expression.substring(2, expression.length - 1)
                 val parts = content.split(":", limit = 2)
                 val variable = parts[0].trim()
                 check(variable.isNotEmpty()) { "variable may not be blank" }
-                val defaultValue: T? = parts.getOrNull(1)?.let { ValueResolver.Empty.parseValue(type, it) }
+                val defaultValue: T? = parts.getOrNull(1)?.let { valueParser.parseValue(type, it) }
                 return Value(type, variable, defaultValue)
             } else {
-                val v = ValueResolver.Empty.parseValue(type, expression)
-                return Value(type, "", v)
+                return Value(type, "", valueParser.parseValue(type, expression))
             }
         }
 
         internal fun <T: Any> parseValueExpressionFor(
-            type: TypeProxy<T>, expression: String,
-            componentName: String?, componentType: KType,
+            type: TypeProxy<T>,
+            expression: String,
+            componentName: String?,
+            componentType: KType,
+            valueParser: ValueResolver,
         ): Value<T> {
             try {
-                return parseValueExpression(type, expression)
+                return parseValueExpression(type, expression, valueParser)
             } catch (e: Exception) {
                 throw RuntimeException("failed to parse value expression for ${componentName}: ${componentType}: $expression", e)
             }

@@ -38,6 +38,10 @@ data class Reflector(
     val qualifierAnnotations: List<AnnotationOf<Any>>,
     val eventListenerAnnotations: List<TagAnnotation>,
     val beanAnnotations: List<AnnotationOf<String>>,
+    /**
+     * [ValueResolver] used to parse default values, it is not used for lookups,
+     */
+    val valueParser: ValueResolver=ValueResolver.Empty,
 ) {
     companion object {
         /**
@@ -102,7 +106,7 @@ fun <T: Any> Reflector.reflectConstructor(
     val constructorArgs: List<Dependency> = constructor.parameters.drop((receiver != null).compareTo(false)).map { p ->
         val valueExpression = p.findFirstAnnotation(valueAnnotations)
         if (valueExpression != null) {
-            Dependency.parseValueExpressionFor(TypeProxy(p.type), valueExpression, name, type.type)
+            Dependency.parseValueExpressionFor(TypeProxy(p.type), valueExpression, name, type.type, valueParser)
         } else {
             val autowiredRequired = p.findFirstAnnotation(autowiredAnnotations)
             val required = autowiredRequired ?: (!p.isOptional && !p.type.isMarkedNullable)
@@ -358,7 +362,7 @@ private fun Reflector.scanMembers(
                 setter.setAccessible()
                 val fieldType = m.returnType
                 if (valueExpression != null)
-                    fields.add(Dependency.parseValueExpressionFor(TypeProxy(fieldType), valueExpression, null, type))
+                    fields.add(Dependency.parseValueExpressionFor(TypeProxy(fieldType), valueExpression, null, type, valueParser))
                 else
                     fields.add(Dependency(fieldType, qualifier, autowiredRequired!!))
                 if (!fieldType.isMarkedNullable)
@@ -378,7 +382,7 @@ private fun Reflector.scanMembers(
                 if (m.visibility != KVisibility.PUBLIC)
                     runCatching { m.setAccessible() }
                 if (valueExpression != null)
-                    fields.add(Dependency.parseValueExpressionFor(TypeProxy(param1Type), valueExpression, null, type))
+                    fields.add(Dependency.parseValueExpressionFor(TypeProxy(param1Type), valueExpression, null, type, valueParser))
                 else
                     fields.add(Dependency(param1Type, qualifier, autowiredRequired!!))
 

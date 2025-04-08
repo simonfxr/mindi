@@ -70,7 +70,9 @@ interface ValueResolver {
         fun compose(vararg resolvers: ValueResolver): ValueResolver = when (resolvers.size) {
             0 -> Empty
             1 -> resolvers[0]
-            else -> with { resolvers.fold(null) { r, f -> r ?: f.resolve(it) } }
+            else -> object: ValueResolver by resolvers[0] {
+                override fun resolve(key: String): Any? = resolvers.fold(null) { r, f -> r ?: f.resolve(key) }
+            }
         }
     }
 }
