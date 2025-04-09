@@ -79,7 +79,11 @@ class SharedContext(
                         addAll(cs)
                     }
                 }
-                sort()
+                sortWith { l, r ->
+                    var ord = componentAt(l).order.compareTo(componentAt(r).order)
+                    if (ord != 0) ord
+                    else l.compareTo(r)
+                }
             }.also {
                 listenersByType[eventType] = it
             }
@@ -111,6 +115,7 @@ class SharedContext(
         }
     }
 
+    internal fun componentAt(i: ListenerIndex) = componentsTable[i.depth][i.index]
     internal fun componentAt(i: Index) = componentsTable[i.depth][i.index]
 
     /**

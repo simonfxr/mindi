@@ -216,6 +216,7 @@ class ComponentScannerTest {
             qualifierAnnotations = Reflector.Default.qualifierAnnotations,
             eventListenerAnnotations = Reflector.Default.eventListenerAnnotations,
             beanAnnotations = Reflector.Default.beanAnnotations,
+            orderAnnotations = Reflector.Default.orderAnnotations,
         )
 
         // Scan with custom reflector for multiple annotation types

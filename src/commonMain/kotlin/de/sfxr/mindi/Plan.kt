@@ -201,7 +201,11 @@ class Plan internal constructor(
                                         add(c)
                         }
                     }
-                    sort()
+                    sortWith { l, r ->
+                        var ord = component(l).order.compareTo(component(r).order)
+                        if (ord != 0) ord
+                        else l.compareTo(r)
+                    }
                 }.also {
                     byType[type] = it
                 }

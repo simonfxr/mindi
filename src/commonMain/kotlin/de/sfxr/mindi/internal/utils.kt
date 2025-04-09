@@ -39,7 +39,7 @@ internal fun <T> ArrayList<T>.compact(): List<T> {
  * @param transform Function to convert elements to key-value pairs
  * @return Map with unique keys
  */
-internal inline fun <T, V> Iterable<T>.associateUnique(transform: (T) -> Pair<String, V>): Map<String, V> {
+internal inline fun <T, V> Iterable<T>.associateUnique(transform: (T) -> Pair<String, V>): LinkedHashMap<String, V> {
     val m = LinkedHashMap<String, V>()
     return associateTo(m) {
         val (k0, v) = transform(it)

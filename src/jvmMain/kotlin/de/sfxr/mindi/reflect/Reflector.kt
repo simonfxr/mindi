@@ -38,6 +38,7 @@ data class Reflector(
     val qualifierAnnotations: List<AnnotationOf<Any>>,
     val eventListenerAnnotations: List<TagAnnotation>,
     val beanAnnotations: List<AnnotationOf<String>>,
+    val orderAnnotations: List<AnnotationOf<Int>>,
     /**
      * [ValueResolver] used to parse default values, it is not used for lookups,
      */
@@ -57,7 +58,20 @@ data class Reflector(
             qualifierAnnotations = listOf(AnnotationOf.valued<Qualifier, Any> { it.value }),
             eventListenerAnnotations = listOf(AnnotationOf.tagged<EventListener>()),
             beanAnnotations = listOf(AnnotationOf.valued<Bean, _> { it.value }),
+            orderAnnotations = listOf(AnnotationOf.valued<Order, Int> { it.value }),
         )
+    }
+
+    /**
+     * Gets the order value for a component class or method.
+     * If the component has an @Order annotation, returns its value.
+     * Otherwise, returns the default order value.
+     *
+     * @param element The element to check for @Order annotation
+     * @return The order value
+     */
+    fun getOrderValue(element: KAnnotatedElement): Int {
+        return element.findFirstAnnotation(orderAnnotations) ?: Order.DEFAULT_ORDER
     }
 }
 
@@ -76,8 +90,9 @@ inline fun <reified T: Any> Reflector.reflectConstructor(
     receiver: Any? = null,
     name: String = "",
     qualifiers: List<Any> = emptyList(),
-    primary: Boolean = false
-): Component<T> = reflectConstructor(constructor, TypeProxy<T>(), receiver, name, qualifiers, primary)
+    primary: Boolean = false,
+    order: Int = Component.DEFAULT_ORDER
+): Component<T> = reflectConstructor(constructor, TypeProxy<T>(), receiver, name, qualifiers, primary, order)
 
 /**
  * Reflects on a class and constructor to create a Component definition.
@@ -96,7 +111,8 @@ fun <T: Any> Reflector.reflectConstructor(
     receiver: Any? = null,
     name: String = "",
     qualifiers: List<Any> = emptyList(),
-    primary: Boolean = false
+    primary: Boolean = false,
+    order: Int = Component.DEFAULT_ORDER
 ): Component<T> {
     check(!constructor.isSuspend)
     val klass = type.type.classifier as KClass<*>
@@ -147,6 +163,7 @@ fun <T: Any> Reflector.reflectConstructor(
         postConstruct = postConstruct.value,
         close = close.value,
         required = true,
+        order = order,
     )
 }
 
@@ -168,6 +185,7 @@ fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
         if (name in it) it - listOf(name) else it
     }
     val primary = klass.hasAnyAnnotation(primaryAnnotations)
+    val orderValue = klass.findFirstAnnotation(orderAnnotations) ?: Component.DEFAULT_ORDER
     val cons1 = klass.constructors.filter { c -> c.visibility == KVisibility.PUBLIC }
     val cons = if (cons1.size <= 1) cons1 else
         cons1.filter { c -> c.hasAnyAnnotation(autowiredAnnotations) }
@@ -177,7 +195,7 @@ fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
         cons.size > 1 -> throw IllegalArgumentException("Ambiguous constructor")
         else -> cons.first() as KFunction<T>
     }
-    return reflectConstructor(constructor, type, name=name, qualifiers=qualifiers, primary=primary)
+    return reflectConstructor(constructor, type, name=name, qualifiers=qualifiers, primary=primary, order=orderValue)
 }
 
 /**
@@ -250,6 +268,7 @@ fun <T: Any> Reflector.reflectFactory(factory: T, type: TypeProxy<T>): List<Comp
     return klass.members.mapNotNull next@{ member ->
         if (member !is KFunction<*> || member.isSuspend) return@next null
         val name = member.findFirstAnnotation(beanAnnotations) ?: return@next null
+        val orderValue = member.findFirstAnnotation(orderAnnotations) ?: Component.DEFAULT_ORDER
         @Suppress("UNCHECKED_CAST")
         reflectConstructor(
             member as KFunction<Any>,
@@ -258,6 +277,7 @@ fun <T: Any> Reflector.reflectFactory(factory: T, type: TypeProxy<T>): List<Comp
             name = name.ifEmpty { member.name.replaceFirstChar { it.lowercase() } },
             qualifiers = member.findAllQualifierAnnotations(qualifierAnnotations).toList(),
             primary = member.hasAnyAnnotation(primaryAnnotations),
+            order = orderValue,
         )
     }
 }

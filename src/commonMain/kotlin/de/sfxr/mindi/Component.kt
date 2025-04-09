@@ -1,5 +1,7 @@
 package de.sfxr.mindi
 
+import de.sfxr.mindi.Component.Companion.DEFAULT_ORDER
+import de.sfxr.mindi.annotations.Order
 import de.sfxr.mindi.internal.compose
 import kotlin.reflect.KClass
 import kotlin.reflect.KMutableProperty1
@@ -99,6 +101,12 @@ data class Component<out T: Any> internal constructor(
     val postConstruct: Callback? = null,
     val close: Callback? = null,
     val required: Boolean = true,
+    /**
+     * The order value for this component when injected as part of a collection.
+     * Components with lower order values have higher precedence.
+     * The default value [DEFAULT_ORDER] is used when no explicit ordering is specified.
+     */
+    val order: Int = DEFAULT_ORDER,
 ) {
 
     /**
@@ -366,6 +374,10 @@ data class Component<out T: Any> internal constructor(
         if (isSubtypeOf(type.type)) this else copy(superTypes=superTypes + listOf(type.type))
 
     companion object  {
+        /**
+         * The default order value for components that don't have an explicit @Order annotation.
+         */
+        const val DEFAULT_ORDER: Int = Order.DEFAULT_ORDER
 
         /**
          * Creates a Component with reified type parameter and explicit dependencies.

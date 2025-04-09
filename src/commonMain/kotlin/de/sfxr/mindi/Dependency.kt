@@ -104,7 +104,7 @@ sealed class Dependency {
         override val type: KType,
         override val qualifier: Any?,
         override val required: Boolean,
-        val wrap: (Context.(Map<String, *>) -> T),
+        val wrap: (Context.(LinkedHashMap<String, *>) -> T),
     ): Dependency()
 
     companion object {
@@ -165,7 +165,7 @@ fun Dependency(type: KType, qualifier: Any? = null, required: Boolean = true): D
             ?.let { ct -> return Dependency.Multiple(ct, qualifier, required) { it } } }
         List::class -> type.arguments.takeIf { it.size == 1 }
             ?.let { (vt) -> vt.type
-            ?.let { ct -> return Dependency.Multiple(ct, qualifier, required) { it.values } } }
+            ?.let { ct -> return Dependency.Multiple(ct, qualifier, required) { it.values.toList() } } }
         Set::class -> type.arguments.takeIf { it.size == 1 }
             ?.let { (vt) -> vt.type
             ?.let { ct -> return Dependency.Multiple(ct, qualifier, required) { it.values.toSet() } } }
