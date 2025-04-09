@@ -104,7 +104,7 @@ sealed class Dependency {
         override val type: KType,
         override val qualifier: Any?,
         override val required: Boolean,
-        val wrap: ((Map<String, *>) -> T),
+        val wrap: (Context.(Map<String, *>) -> T),
     ): Dependency()
 
     companion object {
@@ -169,6 +169,11 @@ fun Dependency(type: KType, qualifier: Any? = null, required: Boolean = true): D
         Set::class -> type.arguments.takeIf { it.size == 1 }
             ?.let { (vt) -> vt.type
             ?.let { ct -> return Dependency.Multiple(ct, qualifier, required) { it.values.toSet() } } }
+        // EventPublisher<T> is special - it needs to be resolved with access to the Context
+        // It depends on all components that listen for events of type T
+        EventPublisher::class -> type.arguments.takeIf { it.size == 1 }
+            ?.let { (vt) -> vt.type
+            ?.let { ct -> return Dependency.Multiple(type, qualifier, required) { EventPublisher<Any>(this) } } }
     }
     // Standard dependency
     return Dependency.Single(type, qualifier, required)

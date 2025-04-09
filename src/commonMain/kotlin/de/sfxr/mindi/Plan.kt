@@ -180,13 +180,26 @@ class Plan internal constructor(
         private fun allProviders(type: KType): List<Index> {
             return byType[type] ?: run {
                 buildList {
-                    for ((p, cs) in byConcreteType) {
-                        if (p == type)
-                            addAll(cs)
-                        else
+                    if (type.classifier == EventPublisher::class) {
+                        // Special handling for EventPublisher<T>
+                        // We need to find all components that listen for events of type T
+                        // This establishes a dependency from the publisher to all listeners
+                        // ensuring listeners are initialized before publishers
+                        val eventType = type.arguments[0].type
+                        check(eventType != null)
+                        for (cs in byConcreteType.values)
                             for (c in cs)
-                                if (component(c).isSubtypeOf(type))
+                                if (eventType in component(c).listenerArgs)
                                     add(c)
+                    } else {
+                        for ((p, cs) in byConcreteType) {
+                            if (p == type)
+                                addAll(cs)
+                            else
+                                for (c in cs)
+                                    if (component(c).isSubtypeOf(type))
+                                        add(c)
+                        }
                     }
                     sort()
                 }.also {

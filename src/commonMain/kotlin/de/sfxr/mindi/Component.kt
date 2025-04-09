@@ -107,6 +107,12 @@ data class Component<out T: Any> internal constructor(
     val klass: KClass<*> get() = type.classifier as? KClass<*>
         ?: error("Type classifier is not a class: ${type.classifier}")
 
+    init {
+        // EventPublisher is a special type that's handled differently in the DI system
+        // It can't be a direct component, as it's created dynamically based on event listeners
+        check(klass != EventPublisher::class) { "EventPublisher cannot be used as a component type" }
+    }
+
     /**
      * Checks if this component's type is a subtype of the given type
      *

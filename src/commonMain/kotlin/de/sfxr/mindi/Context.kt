@@ -11,7 +11,7 @@ import kotlin.reflect.typeOf
 /**
  * The runtime container that manages component instances and their lifecycle.
  *
- * Context is the central component of the Mindi dependency injection framework. It's responsible for:
+ * Context is the central component of the mindi dependency injection framework. It's responsible for:
  * 1. Holding component instances and managing their lifecycle
  * 2. Supporting hierarchical dependency injection through parent contexts
  * 3. Publishing events to components with matching @EventListener methods
@@ -159,7 +159,7 @@ class Context(
             is Dependency.Single ->
                 instanceAt(locations.firstOrNull() ?: return null)!!
             is Dependency.Multiple<*> ->
-                dep.wrap(locations.associateUnique { shared.componentAt(it).name to instanceAt(it)!! })
+                (dep.wrap)(locations.associateUnique { shared.componentAt(it).name to instanceAt(it)!! })
             is Dependency.Value<*> -> error("UNREACHABLE")
         }
     }
@@ -199,7 +199,6 @@ class Context(
      * This is an internal method that replicates the logic from Plan.Planning.resolveSingleProvider
      * but operates on instances rather than component definitions.
      *
-     * @param dependency The dependency to resolve
      * @return List of indices pointing to matching components
      */
     private fun findComponentIndices(type: KType, qual: Any?): List<Instantiation.Index> =
@@ -399,13 +398,12 @@ class Context(
                         when (d) {
                             is Dependency.Value<*> -> values[j]
                             is Dependency.Single -> if (argIndices[j].isEmpty()) null else instance(argIndices[j].first())
-                            is Dependency.Multiple<*> -> d.wrap(argIndices[j].associateUnique { plan.component(it).name to instance(it) })
+                            is Dependency.Multiple<*> -> context.(d.wrap)(argIndices[j].associateUnique { plan.component(it).name to instance(it) })
                         }
                     }
 
                     if (slotOrUnset == -1) {
-                        val construct = c.construct
-                        instances.add(context.construct(args))
+                        instances.add(context.(c.construct)(args))
                     } else if (slotOrUnset >= 0) {
                         val obj = instances[slot]
                         for ((j, v) in args.withIndex())

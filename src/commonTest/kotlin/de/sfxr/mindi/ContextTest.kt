@@ -29,7 +29,7 @@ class ContextTest {
         }
     }
 
-    class EventPublisher {
+    class Publisher {
         @Autowired
         lateinit var context: Context
 
@@ -77,7 +77,7 @@ class ContextTest {
             .listening<String> { onEvent(it) }
             .named("eventListener")
 
-        val publisherComponent = Component(::EventPublisher)
+        val publisherComponent = Component(::Publisher)
             .setting { it: Context -> context = it }
             .named("eventPublisher")
 

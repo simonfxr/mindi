@@ -20,7 +20,7 @@ package de.sfxr.mindi.annotations
  * 2. You want to apply conditional logic to component creation
  * 3. You want to group related component definitions together
  *
- * **Important note**: Unlike Spring's @Bean methods, Mindi's implementation does not use runtime
+ * **Important note**: Unlike Spring's @Bean methods, mindi's implementation does not use runtime
  * proxies to cache bean instances. This means if one @Bean method calls another @Bean method
  * directly, it will create a new instance each time rather than returning the managed singleton.
  * To share instances between beans, you should inject them as method parameters rather than

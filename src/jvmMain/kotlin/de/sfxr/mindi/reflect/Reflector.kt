@@ -226,10 +226,10 @@ inline fun <reified T: Any> Reflector.reflect(): Component<T> = reflect(TypeProx
  * - @Bean methods can be customized with @Qualifier, @Primary, etc.
  * - Custom bean names can be specified in the @Bean annotation
  *
- * **Important difference from Spring**: Unlike Spring's @Bean methods, Mindi's implementation does
+ * **Important difference from Spring**: Unlike Spring's @Bean methods, mindi's implementation does
  * not use runtime proxies to cache bean instances. In Spring, when one @Bean method calls another
  * @Bean method internally, the container intercepts the call and returns the cached instance. In
- * Mindi, each @Bean method call creates a new instance. To share instances between beans, inject
+ * mindi, each @Bean method call creates a new instance. To share instances between beans, inject
  * them as dependencies instead of calling @Bean methods directly.
  *
  * @param factory The object or class instance containing @Bean factory methods
