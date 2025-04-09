@@ -103,14 +103,18 @@ fun <T: Any> Reflector.reflectConstructor(
     val construct: Context.(List<Any?>) -> T =
         if (receiver == null) { args -> construct(constructor, args) }
         else { args -> construct(constructor, listOf(receiver) + args) }
+
+    val typeSubstitution = substitutionMap(klass, type.type)
+
     val constructorArgs: List<Dependency> = constructor.parameters.drop((receiver != null).compareTo(false)).map { p ->
         val valueExpression = p.findFirstAnnotation(valueAnnotations)
+        val paramType = substituteType(typeSubstitution, p.type)
         if (valueExpression != null) {
-            Dependency.parseValueExpressionFor(TypeProxy(p.type), valueExpression, name, type.type, valueParser)
+            Dependency.parseValueExpressionFor(TypeProxy(paramType), valueExpression, name, type.type, valueParser)
         } else {
             val autowiredRequired = p.findFirstAnnotation(autowiredAnnotations)
-            val required = autowiredRequired ?: (!p.isOptional && !p.type.isMarkedNullable)
-            Dependency(p.type, qualifier=p.findFirstQualifierAnnotations(qualifierAnnotations), required=required)
+            val required = autowiredRequired ?: (!p.isOptional && !paramType.isMarkedNullable)
+            Dependency(paramType, qualifier=p.findFirstQualifierAnnotations(qualifierAnnotations), required=required)
         }
     }
 
@@ -125,7 +129,8 @@ fun <T: Any> Reflector.reflectConstructor(
     if (maybeExtendsAutoClosable(klass))
         close.value = { (it as? AutoCloseable)?.close() }
 
-    scanMembers(type.type, superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close)
+    scanMembers(type.type, superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close,
+        typeSubstitutionOrNull = typeSubstitution)
 
     return Component<T>(
         type = type.type,
@@ -235,20 +240,27 @@ inline fun <reified T: Any> Reflector.reflect(): Component<T> = reflect(TypeProx
  * @param factory The object or class instance containing @Bean factory methods
  * @return List of Component definitions created from the factory methods
  */
-fun Reflector.reflectFactory(factory: Any): List<Component<*>> =
-    factory::class.members.mapNotNull next@{ member ->
+
+inline fun <reified T: Any> Reflector.reflectFactory(factory: T): List<Component<*>> =
+    reflectFactory(factory, TypeProxy<T>())
+
+fun <T: Any> Reflector.reflectFactory(factory: T, type: TypeProxy<T>): List<Component<*>> {
+    val klass = type.type.classifier as KClass<*>
+    val subst = substitutionMap(klass, type.type)
+    return klass.members.mapNotNull next@{ member ->
         if (member !is KFunction<*> || member.isSuspend) return@next null
         val name = member.findFirstAnnotation(beanAnnotations) ?: return@next null
         @Suppress("UNCHECKED_CAST")
         reflectConstructor(
             member as KFunction<Any>,
-            TypeProxy<Any>(member.returnType),
+            TypeProxy<Any>(substituteType(subst, member.returnType)),
             receiver = factory,
             name = name.ifEmpty { member.name.replaceFirstChar { it.lowercase() } },
             qualifiers = member.findAllQualifierAnnotations(qualifierAnnotations).toList(),
             primary = member.hasAnyAnnotation(primaryAnnotations),
         )
     }
+}
 
 /**
  * Scans a class's members for special annotations and builds injection metadata.
@@ -269,6 +281,7 @@ private fun Reflector.scanMembers(
     processedProperties: MutableSet<String> = HashSet(),
     processedListeners: MutableSet<Pair<String, KType>>  = HashSet(),
     processedLifecycle: MutableSet<String>  = HashSet(),
+    typeSubstitutionOrNull: Map<String, KTypeProjection>? = null,
 ) {
     val klass = type.classifier as KClass<*>
     if (type in superTypes)
@@ -279,19 +292,15 @@ private fun Reflector.scanMembers(
     if (klass == Any::class || (klass.qualifiedName ?: "").startsWith("kotlin.Function"))
         return
 
-    // Create type substitution map for generic types
-    val typeSubstitution =
-        klass.typeParameters.zip(type.arguments) { param, arg ->
-            param.name to arg
-        }.toMap()
+    val typeSubstitution = typeSubstitutionOrNull ?: substitutionMap(klass, type)
 
     val postConstructCbs = mutableListOf<Callback>()
     val closeCbs = mutableListOf<Callback>()
     for (m in klass.declaredMembers) {
-        if (m.isSuspend || m.isAbstract)
+        if (m.isSuspend)
             continue
         val params = m.parameters
-        val param1Type = params.getOrNull(1)?.type
+        val param1Type = params.getOrNull(1)?.type?.let { substituteType(typeSubstitution, it) }
         val param1Klass = param1Type?.classifier
         val isPrivate = m.visibility == KVisibility.PRIVATE
 
@@ -360,7 +369,7 @@ private fun Reflector.scanMembers(
                 val setter = m.setter
                 m.setAccessible()
                 setter.setAccessible()
-                val fieldType = m.returnType
+                val fieldType = substituteType(typeSubstitution, m.returnType)
                 if (valueExpression != null)
                     fields.add(Dependency.parseValueExpressionFor(TypeProxy(fieldType), valueExpression, null, type, valueParser))
                 else
@@ -407,10 +416,17 @@ private fun Reflector.scanMembers(
     // Process parent classes
     for (parent in klass.supertypes)
         scanMembers(
-            substituteType(typeSubstitution, parent) ?: parent,
+            substituteType(typeSubstitution, parent),
             superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close,
             processedProperties, processedListeners, processedLifecycle,
         )
+}
+
+private fun substitutionMap(klass: KClass<*>, type: KType): Map<String, KTypeProjection> {
+    val params = klass.typeParameters
+    if (params.isEmpty())
+        return emptyMap()
+    return params.zip(type.arguments) { param, arg -> param.name to arg }.toMap()
 }
 
 /**
@@ -420,14 +436,22 @@ private fun Reflector.scanMembers(
  * @param type The type to apply substitutions to
  * @return A new KType with all type parameters replaced with their concrete types, or null if no substitutions were made
  */
-private fun substituteType(typeSubstitution: Map<String, KTypeProjection>, type: KType): KType? {
+private fun substituteTypeIf(typeSubstitution: Map<String, KTypeProjection>, type: KType): KType? {
     if (typeSubstitution.isEmpty()) return null
     val args = type.arguments
+    if (args.isEmpty()) {
+        val klass = type.classifier
+        if (klass is KTypeParameter)
+            return typeSubstitution[klass.name]!!.type!!
+    }
     val substitutedArgs = args.map { arg -> substituteTypeProjection(typeSubstitution, arg) }
-    if (substitutedArgs == args)
+    if (substitutedArgs.zip(args).all { (old, new) -> old === new })
         return null
     return (type.classifier as KClass<*>).createType(substitutedArgs, type.isMarkedNullable, type.annotations)
 }
+
+private fun substituteType(typeSubstitution: Map<String, KTypeProjection>, type: KType): KType =
+    substituteTypeIf(typeSubstitution, type) ?: type
 
 private fun substituteTypeProjection(typeSubstitution: Map<String, KTypeProjection>, arg: KTypeProjection): KTypeProjection {
     val argType = arg.type ?: return KTypeProjection.STAR
@@ -438,7 +462,7 @@ private fun substituteTypeProjection(typeSubstitution: Map<String, KTypeProjecti
             return subst
         subst.type!!
     } else {
-        substituteType(typeSubstitution, argType)
+        substituteTypeIf(typeSubstitution, argType)
     }
     return substituted?.let { replaced ->
         when (arg.variance!!) {
