@@ -4,7 +4,7 @@ import de.sfxr.mindi.*
 import kotlin.reflect.typeOf
 
 /**
- * A simple example demonstrating the core features of Mindi
+ * A simple example demonstrating the core features of mindi
  */
 fun mindiExample() {
     // 1. Define your services and components

@@ -22,7 +22,7 @@ import org.apache.logging.log4j.Logger
 @Component
 class EchoServlet(
     // Example of using @Value annotation with a default
-    @Value("\${echo.greeting:Hello from Mindi!}")
+    @Value("\${echo.greeting:Hello from mindi!}")
     private val greeting: String
 ) {
     private val logger: Logger = LogManager.getLogger(EchoServlet::class.java)
@@ -39,7 +39,7 @@ class EchoServlet(
         val html = """
             <html>
             <head>
-                <title>Mindi Echo</title>
+                <title>mindi Echo</title>
                 <style>
                     body { font-family: sans-serif; margin: 40px; line-height: 1.6; }
                     h1 { color: #333366; }
