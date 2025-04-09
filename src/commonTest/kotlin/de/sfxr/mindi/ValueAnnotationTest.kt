@@ -129,7 +129,7 @@ class ValueAnnotationTest {
         // Scan for components
         try {
             // Create components with @Value annotations
-            val componentWithValueAnnotation = ServerComponentWithValueAnnotation(8080, "localhost", true)
+            ServerComponentWithValueAnnotation(8080, "localhost", true)
             val serverConfig = ServerConfig()
             val componentWithConfig = ServerComponentWithConfig(serverConfig)
 

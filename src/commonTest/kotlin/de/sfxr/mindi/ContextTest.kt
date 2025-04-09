@@ -142,7 +142,7 @@ class ContextTest {
         .named("componentWithOptionalArg")
 
         // Demonstrate the new requireQualified API by creating a component with qualified constructor args
-        val qualifiedComponent = Component { args: String ->
+        Component { args: String ->
             // Here args would be multiple components resolved by qualifier
             "Component with qualified args: $args"
         }

@@ -55,7 +55,7 @@ class ComponentScannerJarTest {
     @Test
     fun testFindComponentsInJar() {
         // Scan for components in the test JAR package
-        val components = ComponentScanner.findComponents(listOf(testPackage))
+        ComponentScanner.findComponents(listOf(testPackage))
 
         // Due to how we're creating the JAR, the class might not be loadable
         // So we'll just check if the scanner attempts to process it

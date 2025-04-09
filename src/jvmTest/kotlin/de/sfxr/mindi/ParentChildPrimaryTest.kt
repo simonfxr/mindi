@@ -232,7 +232,7 @@ class ParentChildPrimaryTest {
             // This is a case where we should still get an ambiguity error
 
             // Create a second non-primary child service for ambiguity testing
-            @de.sfxr.mindi.annotations.Component
+            @Component
             class SecondChildNonPrimaryService : TestService {
                 override fun getName(): String = "SecondChildNonPrimaryService"
             }

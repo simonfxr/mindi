@@ -121,7 +121,7 @@ class CircularDependencyTest {
             val plan = Plan.build(listOf(componentA, componentB1, componentB2, componentC))
             // If we get here without exception, just log it and don't fail the test
             println("Note: Plan built successfully, implementation may handle circular dependencies")
-            val context = Context.instantiate(plan)
+            Context.instantiate(plan)
             println("Note: Context instantiated successfully without detecting circular dependency")
         } catch (e: DependencyCycleException) {
             // This is the expected behavior with the original implementation
@@ -200,7 +200,7 @@ class CircularDependencyTest {
             val plan = Plan.build(components)
             // If we get here without exception, just log it and don't fail the test
             println("Note: Plan built successfully, implementation may handle circular dependencies")
-            val context = Context.instantiate(plan)
+            Context.instantiate(plan)
             println("Note: Context instantiated successfully without detecting circular dependency")
         } catch (e: DependencyCycleException) {
             // This is the expected behavior with the original implementation
@@ -242,7 +242,7 @@ class CircularDependencyTest {
             val plan = Plan.build(listOf(component1, component2))
             // If we get here without exception, just log it and don't fail the test
             println("Note: Plan built successfully, implementation may handle circular dependencies")
-            val context = Context.instantiate(plan)
+            Context.instantiate(plan)
             println("Note: Context instantiated successfully without detecting circular dependency")
         } catch (e: DependencyCycleException) {
             // This is the expected behavior with the original implementation
@@ -282,7 +282,7 @@ class CircularDependencyTest {
             val plan = Plan.build(listOf(componentA, componentB, componentC, componentD))
             // If we get here without exception, just log it and don't fail the test
             println("Note: Plan built successfully, implementation may handle circular dependencies")
-            val context = Context.instantiate(plan)
+            Context.instantiate(plan)
             println("Note: Context instantiated successfully without detecting circular dependency")
         } catch (e: DependencyCycleException) {
             // This is the expected behavior with the original implementation
