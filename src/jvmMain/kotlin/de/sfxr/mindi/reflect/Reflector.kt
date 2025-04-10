@@ -320,14 +320,13 @@ private fun Reflector.scanMembers(
         if (m.isSuspend)
             continue
         val params = m.parameters
-        val param1Type = params.getOrNull(1)?.type?.let { substituteType(typeSubstitution, it) }
-        val param1Klass = param1Type?.classifier
         val isPrivate = m.visibility == KVisibility.PRIVATE
 
         // Process event listener methods
         if (m.hasAnyAnnotation(eventListenerAnnotations) && params.size == 2 &&
-            params[0].kind == KParameter.Kind.INSTANCE && param1Klass is KClass<*>
+            params[0].kind == KParameter.Kind.INSTANCE
         ) {
+            val param1Type = substituteType(typeSubstitution, params[1].type)
             // Skip if not private and already processed a listener with same name and parameter type
             val listenerKey = m.name to param1Type
             if (!isPrivate && listenerKey in processedListeners)
@@ -398,7 +397,7 @@ private fun Reflector.scanMembers(
                     setters.add { o, v -> v?.let { setter.call(o, it) } }
                 else
                     setters.add { o, v -> setter.call(o, v) }
-            } else if (params.size == 2 && params[0].kind == KParameter.Kind.INSTANCE && param1Klass is KClass<*> && m.name.startsWith("set")) {
+            } else if (params.size == 2 && params[0].kind == KParameter.Kind.INSTANCE && m.name.startsWith("set")) {
                 // Extract the property name from setter (e.g., setFoo -> foo)
                 val propertyName = m.name.substring(3).replaceFirstChar { it.lowercase() }
 
@@ -407,6 +406,8 @@ private fun Reflector.scanMembers(
 
                 if (!isPrivate)
                     processedProperties.add(propertyName)
+
+                val param1Type = substituteType(typeSubstitution, params[1].type)
 
                 if (m.visibility != KVisibility.PUBLIC)
                     runCatching { m.setAccessible() }
