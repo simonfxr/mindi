@@ -2,6 +2,7 @@ package de.sfxr.mindi.reflect
 
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
+import kotlin.reflect.KVisibility
 import kotlin.reflect.full.isSubclassOf
 import kotlin.reflect.jvm.isAccessible
 
@@ -13,7 +14,8 @@ import kotlin.reflect.jvm.isAccessible
  *
  */
 internal actual fun KCallable<*>.setAccessible() {
-    isAccessible = true
+    if (visibility != KVisibility.PUBLIC)
+        isAccessible = true
 }
 
 actual fun maybeExtendsAutoClosable(klass: KClass<*>): Boolean = klass.isSubclassOf(AutoCloseable::class)

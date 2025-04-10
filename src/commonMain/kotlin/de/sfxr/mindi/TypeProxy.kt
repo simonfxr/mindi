@@ -14,8 +14,7 @@ value class TypeProxy<T> @PublishedApi internal constructor(val type: KType) {
     /**
      * Gets the Kotlin class of this type.
      */
-    @Suppress("UNCHECKED_CAST")
-    val klass: KClass<T & Any> get() = type.classifier as? KClass<T & Any> ?: error("Type classifier is not a class: ${type.classifier}")
+    val klass: KClass<*> get() = type.classifier as? KClass<*> ?: error("Type classifier is not a class: ${type.classifier}")
 }
 
 /**

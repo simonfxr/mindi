@@ -61,18 +61,6 @@ data class Reflector(
             orderAnnotations = listOf(AnnotationOf.valued<Order, Int> { it.value }),
         )
     }
-
-    /**
-     * Gets the order value for a component class or method.
-     * If the component has an @Order annotation, returns its value.
-     * Otherwise, returns the default order value.
-     *
-     * @param element The element to check for @Order annotation
-     * @return The order value
-     */
-    fun getOrderValue(element: KAnnotatedElement): Int {
-        return element.findFirstAnnotation(orderAnnotations) ?: Order.DEFAULT_ORDER
-    }
 }
 
 /**
@@ -179,32 +167,29 @@ fun <T: Any> Reflector.reflectConstructor(
  * @return Component definition created from reflection
  */
 fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
-    val klass = type.type.classifier as KClass<*>
+    @Suppress("UNCHECKED_CAST")
+    val klass = type.type.classifier as KClass<T>
     val name = (klass.findFirstAnnotation(componentAnnotations) ?: "").ifEmpty { Component.defaultName(klass) }
     val qualifiers = klass.findAllQualifierAnnotations(qualifierAnnotations).toList().let {
         if (name in it) it - listOf(name) else it
     }
     val primary = klass.hasAnyAnnotation(primaryAnnotations)
     val orderValue = klass.findFirstAnnotation(orderAnnotations) ?: Component.DEFAULT_ORDER
-    val cons1 = klass.constructors.filter { c -> c.visibility == KVisibility.PUBLIC }
-    val cons = if (cons1.size <= 1) cons1 else
-        cons1.filter { c -> c.hasAnyAnnotation(autowiredAnnotations) }
-    @Suppress("UNCHECKED_CAST")
-    val constructor = when {
-        cons.isEmpty() && cons1.isEmpty() -> throw IllegalArgumentException("Missing public constructor for $klass")
-        cons.size > 1 -> throw IllegalArgumentException("Ambiguous constructor")
-        else -> cons.first() as KFunction<T>
+    val cons1 = klass.constructors.filter { c -> c.visibility == KVisibility.PUBLIC }.ifEmpty {
+        throw IllegalArgumentException("Missing public constructor for $klass")
     }
-    return reflectConstructor(constructor, type, name=name, qualifiers=qualifiers, primary=primary, order=orderValue)
+    val cons = if (cons1.size == 1) cons1 else cons1.filter { c -> c.hasAnyAnnotation(autowiredAnnotations) }
+    if (cons.size != 1)
+        throw IllegalArgumentException("Ambiguous constructor")
+    return reflectConstructor(cons.first(), type, name=name, qualifiers=qualifiers, primary=primary, order=orderValue)
 }
 
 /**
  * See [reflect]
  */
 fun <T: Any> Reflector.reflect(klass: KClass<T>): Component<T> {
-    val type = klass.starProjectedType
-    check(type.arguments.isEmpty()) { "cannot reflect on class type with unbound type parameters, got $type" }
-    return reflect(TypeProxy<T>(type))
+    check(klass.typeParameters.isEmpty()) { "cannot reflect on class type with unbound type parameters, got $klass" }
+    return reflect(TypeProxy<T>(klass.starProjectedType))
 }
 
 /**
@@ -335,8 +320,7 @@ private fun Reflector.scanMembers(
             if (!isPrivate)
                 processedListeners.add(listenerKey)
 
-            if (m.visibility != KVisibility.PUBLIC)
-                runCatching { m.setAccessible() }
+            m.setAccessible()
             listenerArgs.add(param1Type)
             listenerHandlers.add { o, v -> m.call(o, v) }
             continue
@@ -360,14 +344,12 @@ private fun Reflector.scanMembers(
                 added = true
             }
 
-            if (added && m.visibility != KVisibility.PUBLIC)
-                runCatching { m.setAccessible() }
+            if (added)
+                m.setAccessible()
         }
 
         val javaField: KAnnotatedElement? = (m as? KProperty<*>)?.javaField?.let {
-            object : KAnnotatedElement {
-                override val annotations = it.annotations.toList()
-            }
+            object : KAnnotatedElement { override val annotations = it.annotations.toList() }
         }
 
         // Process injectable fields and setters
@@ -409,8 +391,7 @@ private fun Reflector.scanMembers(
 
                 val param1Type = substituteType(typeSubstitution, params[1].type)
 
-                if (m.visibility != KVisibility.PUBLIC)
-                    runCatching { m.setAccessible() }
+                m.setAccessible()
                 if (valueExpression != null)
                     fields.add(Dependency.parseValueExpressionFor(TypeProxy(param1Type), valueExpression, null, type, valueParser))
                 else
@@ -443,12 +424,8 @@ private fun Reflector.scanMembers(
         )
 }
 
-private fun substitutionMap(klass: KClass<*>, type: KType): Map<String, KTypeProjection> {
-    val params = klass.typeParameters
-    if (params.isEmpty())
-        return emptyMap()
-    return params.zip(type.arguments) { param, arg -> param.name to arg }.toMap()
-}
+private fun substitutionMap(klass: KClass<*>, type: KType): Map<String, KTypeProjection> =
+    klass.typeParameters.map { it.name }.zip(type.arguments).toMap()
 
 /**
  * Substitutes type parameters in a KType with concrete types from a type substitution map.
@@ -465,7 +442,7 @@ private fun substituteTypeIf(typeSubstitution: Map<String, KTypeProjection>, typ
         if (klass is KTypeParameter)
             return typeSubstitution[klass.name]!!.type!!
     }
-    val substitutedArgs = args.map { arg -> substituteTypeProjection(typeSubstitution, arg) }
+    val substitutedArgs = args.map { arg -> substituteType(typeSubstitution, arg) }
     if (substitutedArgs.zip(args).all { (old, new) -> old === new })
         return null
     return (type.classifier as KClass<*>).createType(substitutedArgs, type.isMarkedNullable, type.annotations)
@@ -474,30 +451,23 @@ private fun substituteTypeIf(typeSubstitution: Map<String, KTypeProjection>, typ
 private fun substituteType(typeSubstitution: Map<String, KTypeProjection>, type: KType): KType =
     substituteTypeIf(typeSubstitution, type) ?: type
 
-private fun substituteTypeProjection(typeSubstitution: Map<String, KTypeProjection>, arg: KTypeProjection): KTypeProjection {
+private fun substituteType(typeSubstitution: Map<String, KTypeProjection>, arg: KTypeProjection): KTypeProjection {
     val argType = arg.type ?: return KTypeProjection.STAR
-    val classifier = argType.classifier
-    val substituted = if (classifier is KTypeParameter) {
-        val subst = typeSubstitution[classifier.name]!!
-        if (subst.variance != KVariance.INVARIANT)
-            return subst
-        subst.type!!
+    val klass = argType.classifier
+    val substituted = if (klass is KTypeParameter) {
+        val subst = typeSubstitution[klass.name] ?: throw IllegalArgumentException("Unbound type variable ${klass.name}")
+        if (subst.variance != KVariance.INVARIANT) return subst
+        subst.type ?: typeOf<Any?>() // FIXME: use proper upper bound(s)
     } else {
-        substituteTypeIf(typeSubstitution, argType)
+        substituteTypeIf(typeSubstitution, argType) ?: return arg
     }
-    return substituted?.let { replaced ->
-        when (arg.variance!!) {
-            KVariance.INVARIANT -> KTypeProjection.invariant(replaced)
-            KVariance.IN -> KTypeProjection.contravariant(replaced)
-            KVariance.OUT -> KTypeProjection.covariant(replaced)
-        }
-    } ?: arg
+    return when (arg.variance!!) {
+        KVariance.INVARIANT -> KTypeProjection.invariant(substituted)
+        KVariance.IN -> KTypeProjection.contravariant(substituted)
+        KVariance.OUT -> KTypeProjection.covariant(substituted)
+    }
 }
 
-/**
- * A mutable box holding a single value.
- * Used to pass values by reference for modification in callbacks.
- */
 internal class Box<T>(var value: T)
 
 private fun <T> construct(con: KFunction<T>, args: List<Any?>): T {
