@@ -316,15 +316,18 @@ class Context(
          * @param components The components to include in the context
          * @param parentContext Optional parent context for hierarchical DI
          * @param resolver The resolver for external values (defaults to environment variables)
+         * @param stopToken Optional token to interrupt the instantiation process
          * @return A populated Context with all components instantiated
+         * @throws IllegalStateException If stopToken.shouldStop returns true during instantiation
          */
         fun instantiate(
             components: List<Component<*>>,
             parentContext: Context? = null,
             resolver: ValueResolver = EnvResolver,
+            stopToken: StopToken? = null,
         ): Context {
             val plan = Plan.build(components, parentContext?.shared)
-            return instantiate(plan, parentContext, resolver)
+            return instantiate(plan, parentContext, resolver, stopToken)
         }
 
         /**
@@ -338,15 +341,22 @@ class Context(
          * 5. Call @PostConstruct methods
          * 6. Return the fully initialized Context
          *
+         * The instantiation process can be interrupted by providing a StopToken.
+         * If stopToken.shouldStop returns true during any point in the instantiation,
+         * the process will be interrupted and the partial context will be properly torn down.
+         *
          * @param plan The plan to instantiate
          * @param parentContext The parent context of the context to instantiate
          * @param resolver The resolver for external values (defaults to environment variables)
+         * @param stopToken Optional token to interrupt the instantiation process
          * @return A populated Context with all components instantiated
+         * @throws IllegalStateException If stopToken.shouldStop returns true during instantiation
          */
         fun instantiate(
             plan: Plan,
             parentContext: Context? = null,
             resolver: ValueResolver = EnvResolver,
+            stopToken: StopToken? = null,
         ): Context {
             check(plan.parents.firstOrNull() === parentContext?.shared) {
                 "plan hierarchy must match context hierarchy"
@@ -372,6 +382,9 @@ class Context(
                 for ((slotOrUnset, argIndices) in plan.instantiations) {
                     if (context.isClosed || parentContext?.isClosed == true)
                         throw IllegalStateException("context closed during construction")
+
+                    if (stopToken?.shouldStop == true)
+                        throw IllegalStateException("instantiation interrupted by stop token")
 
                     val slot: Int
                     val c: Component<*>
