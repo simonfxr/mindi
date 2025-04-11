@@ -154,12 +154,11 @@ class Context(
     }
 
     private fun getOrNull(dep: Dependency): Any? {
-        val locations = findComponentIndices(dep.type, dep.qualifier)
         return when (dep) {
             is Dependency.Single ->
-                instanceAt(locations.firstOrNull() ?: return null)!!
+                instanceAt(findSingle(dep.type, dep.qualifier).firstOrNull() ?: return null)!!
             is Dependency.Multiple<*> ->
-                (dep.wrap)(locations.associateUnique { shared.componentAt(it).name to instanceAt(it)!! })
+                (dep.wrap)(findAll(dep.type, dep.qualifier).associateUnique { shared.componentAt(it).name to instanceAt(it)!! })
             is Dependency.Value<*> -> error("UNREACHABLE")
         }
     }
@@ -201,18 +200,18 @@ class Context(
      *
      * @return List of indices pointing to matching components
      */
-    private fun findComponentIndices(type: KType, qual: Any?): List<Instantiation.Index> =
-        Plan.resolveSingleProvider(null, findByType(type), type, qual, required=false) {
+    private fun findSingle(type: KType, qual: Any?): List<Instantiation.Index> =
+        Plan.resolveSingleProvider(null, findAll(type, qual), type, qual, required=false) {
             shared.componentsTable[it.depth][it.index]
         }
 
     /**
      * Finds all components that match the given type.
      */
-    private fun findByType(type: KType): List<Instantiation.Index> = buildList {
+    private fun findAll(type: KType, qual: Any?): List<Instantiation.Index> = buildList {
         for ((d, components) in shared.componentsTable.withIndex())
             for ((i, component) in components.withIndex())
-                if (component.isSubtypeOf(type))
+                if (component.isSubtypeOf(type) && (qual == null || component.isQualifiedBy(qual)))
                     add(Instantiation.Index(d, i))
     }
 

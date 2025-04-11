@@ -15,6 +15,16 @@ value class TypeProxy<T> @PublishedApi internal constructor(val type: KType) {
      * Gets the Kotlin class of this type.
      */
     val klass: KClass<*> get() = type.classifier as? KClass<*> ?: error("Type classifier is not a class: ${type.classifier}")
+
+    companion object {
+        /**
+         * Creates a TypeProxy instance with the given reified type.
+         *
+         * @param type The type to create a proxy for
+         * @return A new TypeProxy instance for the specified type
+         */
+        fun forType(type: KType): TypeProxy<*> = TypeProxy<Any>(type)
+    }
 }
 
 /**

@@ -110,16 +110,13 @@ fun <T: Any> Reflector.reflectConstructor(
 
     val typeSubstitution = substitutionMap(klass, type.type)
 
-    val constructorArgs: List<Dependency> = constructor.parameters.drop((receiver != null).compareTo(false)).map { p ->
-        val valueExpression = p.findFirstAnnotation(valueAnnotations)
+    val constructorArgs = constructor.parameters.drop((receiver != null).compareTo(false)).map { p ->
         val paramType = substituteType(typeSubstitution, p.type)
-        if (valueExpression != null) {
-            Dependency.parseValueExpressionFor(TypeProxy(paramType), valueExpression, name, type.type, valueParser)
-        } else {
-            val autowiredRequired = p.findFirstAnnotation(autowiredAnnotations)
-            val required = autowiredRequired ?: (!p.isOptional && !paramType.isMarkedNullable)
-            Dependency(paramType, qualifier=p.findFirstQualifierAnnotations(qualifierAnnotations), required=required)
-        }
+        valueParser.dependencyFor(name, type.type, TypeProxy(paramType),
+            qualifier=qualifierAnnotations.firstQualifier(p),
+            required=autowiredAnnotations.annotation(p) ?: (!p.isOptional && !paramType.isMarkedNullable),
+            valueExpression=valueAnnotations.annotation(p),
+        )
     }
 
     val postConstruct = Box<Callback?>(null)
@@ -133,8 +130,19 @@ fun <T: Any> Reflector.reflectConstructor(
     if (maybeExtendsAutoClosable(klass))
         close.value = { (it as? AutoCloseable)?.close() }
 
-    scanMembers(type.type, superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close,
-        typeSubstitutionOrNull = typeSubstitution)
+    val queue = ArrayDeque<KType>().apply { add(type.type) }
+    var typeSubstitutionOrNull = if (true) typeSubstitution else null
+    val processedProperties = HashSet<String>()
+    val processedListeners = HashSet<Pair<String, KType>>()
+    val processedLifecycle = HashSet<String>()
+    while (!queue.isEmpty()) {
+        scanMembers(
+            name, queue.removeFirst(), superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close,
+            processedProperties, processedListeners, processedLifecycle,
+            typeSubstitutionOrNull, queue,
+        )
+        typeSubstitutionOrNull = null
+    }
 
     return Component<T>(
         type = type.type,
@@ -169,16 +177,16 @@ fun <T: Any> Reflector.reflectConstructor(
 fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
     @Suppress("UNCHECKED_CAST")
     val klass = type.type.classifier as KClass<T>
-    val name = (klass.findFirstAnnotation(componentAnnotations) ?: "").ifEmpty { Component.defaultName(klass) }
-    val qualifiers = klass.findAllQualifierAnnotations(qualifierAnnotations).toList().let {
+    val name = (componentAnnotations.annotation(klass) ?: "").ifEmpty { Component.defaultName(klass) }
+    val qualifiers = qualifierAnnotations.allQualifiers(klass).toList().let {
         if (name in it) it - listOf(name) else it
     }
-    val primary = klass.hasAnyAnnotation(primaryAnnotations)
-    val orderValue = klass.findFirstAnnotation(orderAnnotations) ?: Component.DEFAULT_ORDER
+    val primary = primaryAnnotations.annotated(klass)
+    val orderValue = orderAnnotations.annotation(klass) ?: Component.DEFAULT_ORDER
     val cons1 = klass.constructors.filter { c -> c.visibility == KVisibility.PUBLIC }.ifEmpty {
         throw IllegalArgumentException("Missing public constructor for $klass")
     }
-    val cons = if (cons1.size == 1) cons1 else cons1.filter { c -> c.hasAnyAnnotation(autowiredAnnotations) }
+    val cons = if (cons1.size == 1) cons1 else cons1.filter(autowiredAnnotations::annotated)
     if (cons.size != 1)
         throw IllegalArgumentException("Ambiguous constructor")
     return reflectConstructor(cons.first(), type, name=name, qualifiers=qualifiers, primary=primary, order=orderValue)
@@ -187,13 +195,19 @@ fun <T: Any> Reflector.reflect(type: TypeProxy<T>): Component<T> {
 /**
  * See [reflect]
  */
-fun <T: Any> Reflector.reflect(klass: KClass<T>): Component<T> {
-    check(klass.typeParameters.isEmpty()) { "cannot reflect on class type with unbound type parameters, got $klass" }
-    return reflect(TypeProxy<T>(klass.starProjectedType))
-}
+fun <T: Any> Reflector.reflect(klass: KClass<T>): Component<T> = reflect(classType(klass))
 
 /**
- * See [reflect]
+ * Reflects on a type to create a Component definition, using type reification.
+ *
+ * This is a convenience method that uses type reification to avoid explicit type parameters.
+ * It creates a Component definition for the specified type, automatically selecting
+ * the constructor and processing annotations.
+ *
+ * @param T The type of the component to reflect
+ * @return Component definition created from reflection
+ * @throws IllegalArgumentException if the class has ambiguous constructors or other reflection issues
+ * @see reflect
  */
 inline fun <reified T: Any> Reflector.reflect(): Component<T> = reflect(TypeProxy<T>())
 
@@ -240,28 +254,93 @@ inline fun <reified T: Any> Reflector.reflect(): Component<T> = reflect(TypeProx
  * mindi, each @Bean method call creates a new instance. To share instances between beans, inject
  * them as dependencies instead of calling @Bean methods directly.
  *
- * @param factory The object or class instance containing @Bean factory methods
+ * @param T The type of the factory object
+ * @param factory The object instance containing @Bean factory methods
  * @return List of Component definitions created from the factory methods
  */
-
 inline fun <reified T: Any> Reflector.reflectFactory(factory: T): List<Component<*>> =
     reflectFactory(factory, TypeProxy<T>())
 
+
+/**
+ * Reflects on a class type to find all @Bean methods and create Component definitions.
+ *
+ * This is a convenience method that uses type reification to avoid explicit type parameters.
+ * It attempts to create an instance of the provided class type using a no-argument constructor
+ * and then scans for @Bean methods on that instance.
+ *
+ * @param T The type of the class containing @Bean methods
+ * @return List of Component definitions created from the factory methods
+ * @throws IllegalArgumentException if the class doesn't have a public no-argument constructor
+ * @see reflectFactory
+ */
+inline fun <reified T: Any> Reflector.reflectFactory(): List<Component<*>> =
+    reflectFactory(TypeProxy<T>())
+
+/**
+ * Reflects on a class type to find all @Bean methods and create Component definitions.
+ * 
+ * This method instantiates the given type using its no-argument constructor and then
+ * scans the instance for methods annotated with @Bean to create Component definitions.
+ *
+ * @param T The type of the class containing @Bean methods
+ * @param type TypeProxy representing the factory class
+ * @return List of Component definitions created from the factory methods
+ * @throws IllegalArgumentException if the class doesn't have a public no-argument constructor
+ * @see reflectFactory
+ */
+fun <T: Any> Reflector.reflectFactory(type: TypeProxy<T>): List<Component<*>> {
+    val klass = type.klass
+    val cons = klass.constructors.filter { it.visibility == KVisibility.PUBLIC && it.parameters.all { it.isOptional } }
+    require(cons.size == 1) {
+        if (cons.isEmpty())
+            "$type does not have a public no argument constructor"
+        else
+            "$type has multiple no argument constructors"
+    }
+    return reflectFactory(cons.first().callBy(emptyMap()) cast type, type)
+}
+
+/**
+ * Reflects on a class to find all @Bean methods and create Component definitions.
+ *
+ * Convenience method that takes a KClass parameter instead of a TypeProxy.
+ *
+ * @param klass The class to scan for @Bean factory methods
+ * @return List of Component definitions created from the factory methods
+ * @throws IllegalArgumentException if the class doesn't have a public no-argument constructor
+ * @see reflectFactory
+ */
+fun Reflector.reflectFactory(klass: KClass<*>): List<Component<*>> =
+    reflectFactory(classType(klass))
+
+/**
+ * Reflects on an object instance to find all @Bean methods and create Component definitions.
+ *
+ * This method takes both an object instance and its type representation, and scans for methods
+ * annotated with @Bean to create Component definitions. The type information is used to 
+ * properly handle generic type parameters.
+ *
+ * @param T The type of the factory object
+ * @param factory The object instance containing @Bean factory methods
+ * @param type TypeProxy representing the factory object's type
+ * @return List of Component definitions created from the factory methods
+ */
 fun <T: Any> Reflector.reflectFactory(factory: T, type: TypeProxy<T>): List<Component<*>> {
     val klass = type.type.classifier as KClass<*>
     val subst = substitutionMap(klass, type.type)
     return klass.members.mapNotNull next@{ member ->
         if (member !is KFunction<*> || member.isSuspend) return@next null
-        val name = member.findFirstAnnotation(beanAnnotations) ?: return@next null
-        val orderValue = member.findFirstAnnotation(orderAnnotations) ?: Component.DEFAULT_ORDER
+        val name = beanAnnotations.annotation(member) ?: return@next null
+        val orderValue = orderAnnotations.annotation(member) ?: Component.DEFAULT_ORDER
         @Suppress("UNCHECKED_CAST")
         reflectConstructor(
             member as KFunction<Any>,
             TypeProxy<Any>(substituteType(subst, member.returnType)),
             receiver = factory,
             name = name.ifEmpty { member.name.replaceFirstChar { it.lowercase() } },
-            qualifiers = member.findAllQualifierAnnotations(qualifierAnnotations).toList(),
-            primary = member.hasAnyAnnotation(primaryAnnotations),
+            qualifiers = qualifierAnnotations.allQualifiers(member).toList(),
+            primary = primaryAnnotations.annotated(member),
             order = orderValue,
         )
     }
@@ -275,6 +354,7 @@ fun <T: Any> Reflector.reflectFactory(factory: T, type: TypeProxy<T>): List<Comp
  * duplicate handlers for overridden methods.
  */
 private fun Reflector.scanMembers(
+    componentName: String,
     type: KType,
     superTypes: MutableSet<KType>,
     fields: MutableList<Dependency>,
@@ -283,10 +363,11 @@ private fun Reflector.scanMembers(
     listenerHandlers: MutableList<Sink>,
     postConstruct: Box<Callback?>,
     close: Box<Callback?>,
-    processedProperties: MutableSet<String> = HashSet(),
-    processedListeners: MutableSet<Pair<String, KType>>  = HashSet(),
-    processedLifecycle: MutableSet<String>  = HashSet(),
-    typeSubstitutionOrNull: Map<String, KTypeProjection>? = null,
+    processedProperties: MutableSet<String>,
+    processedListeners: MutableSet<Pair<String, KType>>,
+    processedLifecycle: MutableSet<String>,
+    typeSubstitutionOrNull: Map<String, KTypeProjection>?,
+    queue: ArrayDeque<KType>,
 ) {
     val klass = type.classifier as KClass<*>
     if (type in superTypes)
@@ -302,18 +383,18 @@ private fun Reflector.scanMembers(
     val postConstructCbs = mutableListOf<Callback>()
     val closeCbs = mutableListOf<Callback>()
     for (m in klass.declaredMembers) {
-        if (m.isSuspend)
-            continue
+        if (m.isSuspend) continue
+
         val params = m.parameters
         val isPrivate = m.visibility == KVisibility.PRIVATE
 
         // Process event listener methods
-        if (m.hasAnyAnnotation(eventListenerAnnotations) && params.size == 2 &&
+        if (eventListenerAnnotations.annotated(m) && params.size == 2 &&
             params[0].kind == KParameter.Kind.INSTANCE
         ) {
-            val param1Type = substituteType(typeSubstitution, params[1].type)
+            val eventType = substituteType(typeSubstitution, params[1].type)
             // Skip if not private and already processed a listener with same name and parameter type
-            val listenerKey = m.name to param1Type
+            val listenerKey = m.name to eventType
             if (!isPrivate && listenerKey in processedListeners)
                 continue
 
@@ -321,31 +402,24 @@ private fun Reflector.scanMembers(
                 processedListeners.add(listenerKey)
 
             m.setAccessible()
-            listenerArgs.add(param1Type)
-            listenerHandlers.add { o, v -> m.call(o, v) }
+            listenerArgs.add(eventType)
+            listenerHandlers.add(m::call)
             continue
         }
 
         // Process lifecycle methods
         if (params.size == 1 && params[0].kind == KParameter.Kind.INSTANCE) {
-            var added = false
-
-            if (m.hasAnyAnnotation(postConstructAnnotations) && (isPrivate || m.name !in processedLifecycle)) {
+            if (postConstructAnnotations.annotated(m) && (isPrivate || m.name !in processedLifecycle)) {
                 if (!isPrivate)
                     processedLifecycle.add(m.name)
-                postConstructCbs.add { m.call(it) }
-                added = true
-            }
-
-            if (m.hasAnyAnnotation(preDestroyAnnotations) && (isPrivate || m.name !in processedLifecycle)) {
-                if (!isPrivate)
-                    processedLifecycle.add(m.name)
-                closeCbs.add { m.call(it) }
-                added = true
-            }
-
-            if (added)
                 m.setAccessible()
+                postConstructCbs.add(m::call)
+            } else if (preDestroyAnnotations.annotated(m) && (isPrivate || m.name !in processedLifecycle)) {
+                if (!isPrivate)
+                    processedLifecycle.add(m.name)
+                m.setAccessible()
+                closeCbs.add(m::call)
+            }
         }
 
         val javaField: KAnnotatedElement? = (m as? KProperty<*>)?.javaField?.let {
@@ -353,58 +427,53 @@ private fun Reflector.scanMembers(
         }
 
         // Process injectable fields and setters
-        val autowiredRequired = m.findFirstAnnotation(autowiredAnnotations) ?: javaField?.findFirstAnnotation(autowiredAnnotations)
-        val valueExpression = if (autowiredRequired != null) null else m.findFirstAnnotation(valueAnnotations) ?: javaField?.findFirstAnnotation(valueAnnotations)
+        val required = autowiredAnnotations.annotation(m) ?: javaField?.let(autowiredAnnotations::annotation)
+        val valueExpression = if (required != null) null else valueAnnotations.annotation(m) ?: javaField?.let(valueAnnotations::annotation)
         val qualifier =
-            if (autowiredRequired == null) null
-            else m.findFirstQualifierAnnotations(qualifierAnnotations) ?: javaField?.findFirstQualifierAnnotations(qualifierAnnotations)
-        if (autowiredRequired != null || valueExpression != null) {
-            val isPrivate = m.visibility == KVisibility.PRIVATE
-            if (m is KMutableProperty1<*, *>) {
-                if (!isPrivate && m.name in processedProperties)
-                    continue // Skip this property as we've already processed it
+            if (required == null) null
+            else qualifierAnnotations.annotation(m) ?: javaField?.let(qualifierAnnotations::annotation)
+        if (required == null && valueExpression == null)
+            continue
 
-                if (!isPrivate)
-                    processedProperties.add(m.name)
+        val isRequired = required != false
+        if (m is KMutableProperty1<*, *>) {
+            if (!isPrivate && m.name in processedProperties)
+                continue // Skip this property as we've already processed it
 
-                val setter = m.setter
-                m.setAccessible()
-                setter.setAccessible()
-                val fieldType = substituteType(typeSubstitution, m.returnType)
-                if (valueExpression != null)
-                    fields.add(Dependency.parseValueExpressionFor(TypeProxy(fieldType), valueExpression, null, type, valueParser))
-                else
-                    fields.add(Dependency(fieldType, qualifier, autowiredRequired!!))
-                if (!fieldType.isMarkedNullable)
-                    setters.add { o, v -> v?.let { setter.call(o, it) } }
-                else
-                    setters.add { o, v -> setter.call(o, v) }
-            } else if (params.size == 2 && params[0].kind == KParameter.Kind.INSTANCE && m.name.startsWith("set")) {
-                // Extract the property name from setter (e.g., setFoo -> foo)
-                val propertyName = m.name.substring(3).replaceFirstChar { it.lowercase() }
+            if (!isPrivate)
+                processedProperties.add(m.name)
 
-                if (!isPrivate && propertyName in processedProperties)
-                    continue // Skip this setter as we've already processed it for this property
+            val setter = m.setter
+            m.setAccessible()
+            setter.setAccessible()
+            val fieldType = substituteType(typeSubstitution, m.returnType)
+            fields.add(valueParser.dependencyFor(componentName, type, TypeProxy(fieldType), qualifier, isRequired, valueExpression))
+            if (!fieldType.isMarkedNullable)
+                setters.add { o, v -> v?.let { setter.call(o, it) } }
+            else
+                setters.add { o, v -> setter.call(o, v) }
+        } else if (params.size == 2 && params[0].kind == KParameter.Kind.INSTANCE && m.name.startsWith("set")) {
+            // Extract the property name from setter (e.g., setFoo -> foo)
+            val propertyName = m.name.substring(3).replaceFirstChar { it.lowercase() }
 
-                if (!isPrivate)
-                    processedProperties.add(propertyName)
+            if (!isPrivate && propertyName in processedProperties)
+                continue // Skip this setter as we've already processed it for this property
 
-                val param1Type = substituteType(typeSubstitution, params[1].type)
+            if (!isPrivate)
+                processedProperties.add(propertyName)
 
-                m.setAccessible()
-                if (valueExpression != null)
-                    fields.add(Dependency.parseValueExpressionFor(TypeProxy(param1Type), valueExpression, null, type, valueParser))
-                else
-                    fields.add(Dependency(param1Type, qualifier, autowiredRequired!!))
+            val fieldType = substituteType(typeSubstitution, params[1].type)
 
-                val p1 = params[1]
-                if (p1.isOptional && autowiredRequired == false)
-                    setters.add { o, v -> if (v == null) m.callBy(mapOf(m.parameters[0] to o)) else m.call(o, v) }
-                else if (!param1Type.isMarkedNullable)
-                    setters.add { o, v -> v?.let { m.call(o, it) } }
-                else
-                    setters.add { o, v -> m.call(o, v) }
-            }
+            m.setAccessible()
+            fields.add(valueParser.dependencyFor(componentName, type, TypeProxy(fieldType), qualifier, isRequired, valueExpression))
+
+            val p1 = params[1]
+            if (p1.isOptional && required == false)
+                setters.add { o, v -> if (v == null) m.callBy(mapOf(m.parameters[0] to o)) else m.call(o, v) }
+            else if (!fieldType.isMarkedNullable)
+                setters.add { o, v -> v?.let { m.call(o, it) } }
+            else
+                setters.add(m::call)
         }
     }
 
@@ -415,25 +484,19 @@ private fun Reflector.scanMembers(
     if (closeCbs.isNotEmpty())
         close.value = compose(closeCbs.foldRight(null, ::compose), close.value)
 
-    // Process parent classes
     for (parent in klass.supertypes)
-        scanMembers(
-            substituteType(typeSubstitution, parent),
-            superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close,
-            processedProperties, processedListeners, processedLifecycle,
-        )
+        queue.add(substituteType(typeSubstitution, parent))
 }
+
+private fun <T: Any> ValueResolver.dependencyFor(componentName: String, componentType: KType, depType: TypeProxy<T>, qualifier: Any?, required: Boolean, valueExpression: String?) =
+    if (valueExpression != null)
+        Dependency.parseValueExpressionFor(depType, valueExpression, componentName, componentType, this)
+    else
+        Dependency(depType.type, qualifier, required)
 
 private fun substitutionMap(klass: KClass<*>, type: KType): Map<String, KTypeProjection> =
     klass.typeParameters.map { it.name }.zip(type.arguments).toMap()
 
-/**
- * Substitutes type parameters in a KType with concrete types from a type substitution map.
- *
- * @param typeSubstitution Map from type parameter names to concrete types
- * @param type The type to apply substitutions to
- * @return A new KType with all type parameters replaced with their concrete types, or null if no substitutions were made
- */
 private fun substituteTypeIf(typeSubstitution: Map<String, KTypeProjection>, type: KType): KType? {
     if (typeSubstitution.isEmpty()) return null
     val args = type.arguments
@@ -471,13 +534,17 @@ private fun substituteType(typeSubstitution: Map<String, KTypeProjection>, arg: 
 internal class Box<T>(var value: T)
 
 private fun <T> construct(con: KFunction<T>, args: List<Any?>): T {
-    if (null !in args)
-        return con.call(*args.toTypedArray())
+    if (null !in args) return con.call(*args.toTypedArray())
     val params = con.parameters
-    check(args.size == params.size) { "expected exactly ${params.size} arguments, but got ${args.size}" }
-    val argMap = HashMap<KParameter, Any?>(args.size)
-    for ((param, arg) in params.zip(args))
-        if (arg != null || !param.isOptional)
-            argMap[param] = arg
-    return con.callBy(argMap)
+    require(args.size == params.size) { "expected exactly ${params.size} arguments, but got ${args.size}" }
+    return con.callBy(params.zip(args).filter { (param, arg) -> arg != null || !param.isOptional }.toMap())
 }
+
+/**
+ * Creates a TypeProxy for a class, ensuring it has no unbound type parameters.
+ */
+internal fun <T: Any> classType(klass: KClass<T>): TypeProxy<T> {
+    require(klass.typeParameters.isEmpty()) { "cannot reflect on class type with unbound type parameters, got $klass" }
+    return TypeProxy<T>(klass.starProjectedType)
+}
+

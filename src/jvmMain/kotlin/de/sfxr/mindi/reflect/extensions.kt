@@ -4,53 +4,46 @@ import kotlin.reflect.KAnnotatedElement
 import kotlin.reflect.full.findAnnotations
 
 /**
- * Finds the first annotation from a list of annotation types and extracts its value.
+ * Finds the first annotation from a list of annotation extractors and extracts its value.
  *
  * @param T The type of value to extract
- * @param annotations List of annotation types to search for
+ * @param element The annotated element to inspect
  * @return The extracted value, or null if no matching annotation is found
  */
-internal fun <T> KAnnotatedElement.findFirstAnnotation(annotations: List<AnnotationOf<T>>): T? =
-    annotations.firstNotNullOfOrNull { a -> findAnnotations(a.klass).firstOrNull()?.let { a.valueOf(it) } }
-
-/**
- * Finds all annotations from a list of annotation types and extracts their values.
- *
- * @param T The type of value to extract
- * @param annotations List of annotation types to search for
- * @return List of extracted values from all matching annotations
- */
-internal fun <T> KAnnotatedElement.findAllAnnotations(annotations: List<AnnotationOf<T>>): List<T> =
-    annotations.flatMap { a -> findAnnotations(a.klass).map { a.valueOf(it)} }
+internal fun <T> Iterable<AnnotationOf<T>>.annotation(element: KAnnotatedElement): T? =
+    firstNotNullOfOrNull { a -> element.findAnnotations(a.klass).firstOrNull()?.let { a.valueOf(it) } }
 
 /**
  * Finds all qualifier annotations, including meta-annotations (annotations on annotations).
  * This allows for custom qualifier annotations like @Primary, @Repository, etc.
  *
- * @param annotations List of qualifier annotation types to search for
+ * @param element The annotated element to inspect
  * @return Set of qualifier values from all matching annotations, including meta-annotations
  */
-internal fun KAnnotatedElement.findAllQualifierAnnotations(annotations: List<AnnotationOf<Any>>): Set<Any> {
-    val result = annotations.flatMapTo(HashSet()) { a -> findAnnotations(a.klass).map { a.valueOf(it) } }
-    this.annotations.mapNotNullTo(result) { a ->
+internal fun Iterable<AnnotationOf<Any>>.allQualifiers(element: KAnnotatedElement): Set<Any> {
+    val result = flatMapTo(HashSet()) { a -> element.findAnnotations(a.klass).map { a.valueOf(it) } }
+    element.annotations.mapNotNullTo(result) { a ->
         // If this annotation type is itself annotated with @Qualifier
-        a.takeIf { a.annotationClass.hasAnyAnnotation(annotations) }
+        a.takeIf { annotated(a.annotationClass) }
     }
     return result
 }
 
 /**
- * See [findAllQualifierAnnotations]
+ * Returns the first qualifier found from the element's annotations.
+ *
+ * @param element The annotated element to inspect
+ * @return The first qualifier value, or null if no qualifier annotations are found
+ * @see allQualifiers
  */
-internal fun KAnnotatedElement.findFirstQualifierAnnotations(annotations: List<AnnotationOf<Any>>) =
-    findAllQualifierAnnotations(annotations).firstOrNull()
+internal fun Iterable<AnnotationOf<Any>>.firstQualifier(element: KAnnotatedElement) =
+    allQualifiers(element).firstOrNull()
 
 /**
  * Checks if an element has any of the specified annotations.
  *
- * @param T The type of value extracted from the annotations
- * @param annotations List of annotation types to check for
+ * @param element The annotated element to inspect
  * @return True if the element has any of the specified annotations
  */
-internal fun <T> KAnnotatedElement.hasAnyAnnotation(annotations: List<AnnotationOf<T>>): Boolean =
-    annotations.any { a -> findAnnotations(a.klass).isNotEmpty() }
+internal fun Iterable<AnnotationOf<*>>.annotated(element: KAnnotatedElement): Boolean =
+    any { a -> element.findAnnotations(a.klass).isNotEmpty() }
