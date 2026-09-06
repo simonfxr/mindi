@@ -1,27 +1,27 @@
 plugins {
     kotlin("jvm")
     application
-    id("com.github.johnrengelman.shadow") version "8.1.1"
+    id("com.gradleup.shadow") version "9.6.1"
 }
 
 group = "de.sfxr.examples"
-version = "0.1.0"
+version = "0.2.0"
 
 dependencies {
     // Use local mindi dependency
-    implementation("de.sfxr:mindi:0.1.0")
+    implementation("de.sfxr:mindi:0.2.0")
 
     // Ktor for web server
-    val ktorVersion = "2.3.9"
+    val ktorVersion = "3.5.2"
     implementation("io.ktor:ktor-server-core:$ktorVersion")
     implementation("io.ktor:ktor-server-netty:$ktorVersion")
     implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-jackson:$ktorVersion")
 
     // Log4j2 for logging
-    implementation("org.apache.logging.log4j:log4j-api:2.22.1")
-    implementation("org.apache.logging.log4j:log4j-core:2.22.1")
-    implementation("org.apache.logging.log4j:log4j-slf4j-impl:2.22.1")
+    implementation("org.apache.logging.log4j:log4j-api:2.26.1")
+    implementation("org.apache.logging.log4j:log4j-core:2.26.1")
+    implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.26.1")
 
     // Test dependencies
     testImplementation(kotlin("test-junit"))
@@ -36,6 +36,9 @@ tasks.shadowJar {
     archiveBaseName.set("mindi-webapp-example")
     archiveClassifier.set("")
     archiveVersion.set(version.toString())
+    filesMatching(listOf("META-INF/services/**", "META-INF/*.kotlin_module")) {
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
     mergeServiceFiles()
     manifest {
         attributes(mapOf(

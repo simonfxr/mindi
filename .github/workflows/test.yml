@@ -2,56 +2,55 @@ name: Run Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
-  jvm-test:
-    runs-on: ubuntu-latest
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: JVM, JavaScript and Linux x64
+            os: ubuntu-24.04
+            # Kotlin/Native does not support Linux ARM64 compiler hosts.
+            # Cross-compile that artifact here; do not claim to runtime-test it.
+            tasks: jvmTest jsNodeTest linuxX64Test linuxArm64Klib
+          - name: Windows x64
+            os: windows-2025
+            tasks: mingwX64Test
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up JDK 11
-        uses: actions/setup-java@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          java-version: '11'
-          distribution: 'temurin'
-          cache: gradle
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-      - name: Run JVM tests
-        run: ./gradlew jvmTest
-
-  js-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up JDK 11
-        uses: actions/setup-java@v3
+          persist-credentials: false
+      - name: Set up JDK
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
-          java-version: '11'
-          distribution: 'temurin'
-          cache: gradle
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+          java-version: '21'
+          distribution: temurin
+      - name: Set up Gradle and validate wrapper
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - name: Run tests
+        shell: bash
+        env:
+          TEST_TASKS: ${{ matrix.tasks }}
+        run: |
+          read -r -a tasks <<< "$TEST_TASKS"
+          ./gradlew "${tasks[@]}" --no-configuration-cache --max-workers=2
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          node-version: '16'
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-      - name: Run JS tests
-        run: ./gradlew jsNodeTest
-
-  linux-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up JDK 11
-        uses: actions/setup-java@v3
-        with:
-          java-version: '11'
-          distribution: 'temurin'
-          cache: gradle
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-      - name: Run Linux x64 tests
-        run: ./gradlew linuxX64Test
+          name: test-reports-${{ matrix.os }}
+          path: |
+            build/reports/tests/
+            build/test-results/
+          if-no-files-found: ignore

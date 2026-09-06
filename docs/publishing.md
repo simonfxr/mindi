@@ -1,12 +1,13 @@
 # Publishing to Maven Central (local first)
 
-Coordinates: `de.sfxr:mindi:0.1.0`. The group ID `de.sfxr` represents ownership
+Coordinates: `de.sfxr:mindi`. The release version is declared in `gradle.properties`
+(currently `0.2.0`; `0.1.0` is already published). The group ID `de.sfxr` represents ownership
 of `sfxr.de`. Confirm the namespace and version before uploading: Central releases
 are immutable and a published version cannot be overwritten.
 
 Publishing uses the Central Portal through `com.vanniktech.maven.publish`, not
-the retired OSSRH/Nexus endpoints. GitHub Actions have not yet been migrated;
-do not use the old release workflow for this procedure.
+the retired OSSRH/Nexus endpoints. For automated tag releases, see
+[GitHub release setup](github-releases.md).
 
 ## One-time account and signing setup
 
@@ -82,8 +83,9 @@ needs only the signing key, not the Portal token. Signing without a configured
 key intentionally fails rather than silently producing an unsigned release.
 Do not run the generic `publish` task for a local check: it includes remote repositories.
 
-Linux ARM64 and Windows artifacts can be compiled here, but their runtime tests
-need their corresponding hosts. Browser tests are currently disabled in the build.
+Linux ARM64 and Windows artifacts can be compiled here. Windows runtime tests
+run on Windows in CI. Linux ARM64 is cross-compiled only: Kotlin/Native currently
+does not support Linux ARM64 compiler hosts. Browser tests are currently disabled.
 
 ## Upload, validate, then release
 
@@ -102,10 +104,11 @@ For subsequent releases, once this process is proven, the explicit one-command
 upload-and-release path is:
 
 ```sh
-FORCED_VERSION=0.1.1 ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
 ```
 
-Use the same `FORCED_VERSION` for local validation and upload. Never reuse an
+Update `version` in `gradle.properties` before a release. If using `FORCED_VERSION`
+to override it locally, use the same value for validation and upload. Never reuse an
 already-published version. Avoid snapshots for the first release: they use a
 separate repository and do not verify the release workflow.
 
@@ -114,10 +117,10 @@ verify from a separate consumer using **only** `mavenCentral()`:
 
 ```kotlin
 repositories { mavenCentral() }
-dependencies { implementation("de.sfxr:mindi:0.1.0") }
+dependencies { implementation("de.sfxr:mindi:0.2.0") }
 ```
 
-A plain Maven/JVM consumer uses `de.sfxr:mindi-jvm:0.1.0`. Confirm dependency
+A plain Maven/JVM consumer uses `de.sfxr:mindi-jvm:0.2.0`. Confirm dependency
 resolution and a small usage test before declaring the release successful.
 
 Finally clear credentials from the terminal:

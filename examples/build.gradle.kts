@@ -1,9 +1,9 @@
 plugins {
-    kotlin("jvm") version "2.1.20" apply false
+    kotlin("jvm") version "2.4.10" apply false
 }
 
 group = "de.sfxr.examples"
-version = "0.1.0"
+version = "0.2.0"
 
 allprojects {
     repositories {

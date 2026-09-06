@@ -10,14 +10,14 @@ plugins {
 }
 
 atomicfu {
-    transformJvm = true // Disable JVM transformation, only transform native code
+    transformJvm = true
     jvmVariant = "FU"
 }
 
 group = "de.sfxr"
 
-val forcedVersion = System.getenv("FORCED_VERSION")?.takeIf { it.isNotBlank() }
-version = forcedVersion ?: "0.1.0"
+val forcedVersion = providers.environmentVariable("FORCED_VERSION").orNull?.takeIf { it.isNotBlank() }
+version = forcedVersion ?: providers.gradleProperty("version").get()
 
 println("Building with version: $version")
 
@@ -34,7 +34,7 @@ kotlin {
         }
     }
 
-    js(IR) {
+    js {
         nodejs()
         browser {
             testTask {
@@ -54,7 +54,7 @@ kotlin {
     applyDefaultHierarchyTemplate()
 
     sourceSets {
-        val commonMain by getting {
+        getByName("commonMain") {
             dependencies {
                 implementation(kotlin("stdlib"))
                 implementation(kotlin("reflect"))
@@ -62,50 +62,50 @@ kotlin {
             }
         }
 
-        val commonTest by getting {
+        getByName("commonTest") {
             dependencies {
                 implementation(kotlin("test"))
             }
         }
 
-        val nativeMain by getting {}
-        val nativeTest by getting {}
+        val nativeMain = getByName("nativeMain")
+        val nativeTest = getByName("nativeTest")
 
         // POSIX-specific code
-        val posixMain by creating {
+        val posixMain = create("posixMain") {
             dependsOn(nativeMain)
         }
-        val posixTest by creating {
+        val posixTest = create("posixTest") {
             dependsOn(nativeTest)
         }
 
         // Windows-specific code
-        val windowsMain by creating {
+        val windowsMain = create("windowsMain") {
             dependsOn(nativeMain)
         }
-        val windowsTest by creating {
+        val windowsTest = create("windowsTest") {
             dependsOn(nativeTest)
         }
 
         // Configure platform-specific source sets
-        val linuxX64Main by getting {
+        getByName("linuxX64Main") {
             dependsOn(posixMain)
         }
-        val linuxArm64Main by getting {
+        getByName("linuxArm64Main") {
             dependsOn(posixMain)
         }
-        val mingwX64Main by getting {
+        getByName("mingwX64Main") {
             dependsOn(windowsMain)
         }
 
         // Test source sets
-        val linuxX64Test by getting {
+        getByName("linuxX64Test") {
             dependsOn(posixTest)
         }
-        val linuxArm64Test by getting {
+        getByName("linuxArm64Test") {
             dependsOn(posixTest)
         }
-        val mingwX64Test by getting {
+        getByName("mingwX64Test") {
             dependsOn(windowsTest)
         }
     }
