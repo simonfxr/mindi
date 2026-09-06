@@ -1,7 +1,11 @@
 # mindi - Minimal Dependency Injection for Kotlin
 
-![JVM Tests Status](https://img.shields.io/badge/jvm%20tests-passing-brightgreen)
-![Native Tests Status](https://img.shields.io/badge/native%20tests-passing-brightgreen)
+[![Maven Central](https://img.shields.io/maven-central/v/de.sfxr/mindi)](https://central.sonatype.com/artifact/de.sfxr/mindi)
+[![Build](https://github.com/simonfxr/mindi/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/simonfxr/mindi/actions/workflows/build.yml)
+[![Tests](https://github.com/simonfxr/mindi/actions/workflows/test.yml/badge.svg?branch=main&event=push)](https://github.com/simonfxr/mindi/actions/workflows/test.yml)
+[![Publish](https://github.com/simonfxr/mindi/actions/workflows/publish.yml/badge.svg)](https://github.com/simonfxr/mindi/actions/workflows/publish.yml)
+
+[API documentation](https://simonfxr.github.io/mindi/)
 
 mindi is a lightweight, flexible dependency injection framework for Kotlin Multiplatform projects. It provides a powerful DI container with Spring-like features while maintaining a small footprint and Kotlin-first design.
 
@@ -34,7 +38,7 @@ Add mindi to your project:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("de.sfxr:mindi:0.1.0")
+    implementation("de.sfxr:mindi:0.2.0")
 }
 ```
 

@@ -39,29 +39,34 @@ In the environment's protection settings:
 Under **Settings → Actions → General**, enable GitHub Actions and allow the
 pinned actions used in `.github/workflows/`. Publishing uses only `contents: read`;
 no PAT, GitHub Packages token, or `packages: write` permission is needed.
-The separate documentation workflow needs `contents: write` for its existing
-`gh-pages` branch deployment. For that website, set **Settings → Pages** to
-"Deploy from a branch", branch `gh-pages`, folder `/` once the branch exists.
-Pages is optional and unrelated to Maven publishing.
+The separate documentation workflow deploys directly with the official Pages
+actions, using `pages: write` and `id-token: write` only in its deployment job.
+Set **Settings → Pages → Source** to **GitHub Actions**. In the `github-pages`
+environment, allow tags matching `v*` and the `main` branch (for manual deployment).
+No extra secrets or PAT are needed, and the old `gh-pages` branch is no longer
+updated. Pages is independent of Maven publishing.
 
-## Release 0.2.0
+## Next release (example: 0.2.1)
 
-1. Review and commit the release changes. Confirm `version=0.2.0` in
-   `gradle.properties`.
+`0.2.0` is already published. Do not recreate or move its tag.
+
+1. Review and commit the release changes. Set `version=0.2.1` in
+   `gradle.properties` (or choose another unused version).
 2. Push the branch and wait for the Build and Run Tests workflows to pass.
 3. Create an annotated tag if it does not already exist, then push **that tag**:
 
    ```sh
-   git push origin main
+   git -c push.followTags=false push origin main
    # Wait for branch CI; omit tag creation if already prepared locally.
-   git tag -a v0.2.0 -m "Release 0.2.0"
-   git push origin v0.2.0
+   git tag -a v0.2.1 -m "Release 0.2.1"
+   git -c push.followTags=false push origin refs/tags/v0.2.1
    ```
 
 4. The **Publish to Maven Central** workflow runs tests on the tagged commit:
    JVM, Node.js, Linux x64, and Windows x64. Linux ARM64 is cross-compiled, not
    runtime-tested. No signing secrets are given to test jobs or PR workflows.
-5. Approve the `maven-central` environment when prompted. The release job checks
+5. Approve the `maven-central` environment if required reviewers are configured.
+   Otherwise publishing proceeds automatically. The release job checks
    that the tag matches the declared version, builds and signs all six
    publications, then runs `publishAndReleaseToMavenCentral`. It waits for
    Central's **PUBLISHED** state. **Approval authorizes an immutable public
@@ -71,6 +76,18 @@ Pages is optional and unrelated to Maven publishing.
 
 Creating a GitHub Release is optional: **pushing the tag is the trigger**. Do not
 also publish this version manually from your workstation.
+
+The same tag also builds and deploys API documentation to
+<https://simonfxr.github.io/mindi/>. Ordinary pushes to `main` build documentation
+without replacing the public site. To redeploy documentation without another
+Maven release, manually run the documentation workflow from `main`:
+
+```sh
+gh workflow run docs.yml --repo simonfxr/mindi --ref main
+```
+
+The explicit `push.followTags=false` prevents a global Git setting from pushing
+local annotated release tags before branch CI passes.
 
 ## Failures and retries
 
