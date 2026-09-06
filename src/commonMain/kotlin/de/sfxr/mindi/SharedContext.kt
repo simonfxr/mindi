@@ -80,7 +80,7 @@ class SharedContext(
                     }
                 }
                 sortWith { l, r ->
-                    var ord = componentAt(l).order.compareTo(componentAt(r).order)
+                    val ord = componentAt(l).order.compareTo(componentAt(r).order)
                     if (ord != 0) ord
                     else l.compareTo(r)
                 }

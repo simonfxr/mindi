@@ -10,8 +10,7 @@ import kotlin.reflect.typeOf
 
 /**
  * Function type for setting values on component instances.
- * @param obj The target component instance
- * @param value The value to set
+ * Takes the target component instance and the value to set.
  */
 typealias Sink = (obj: Any, value: Any?) -> Unit
 

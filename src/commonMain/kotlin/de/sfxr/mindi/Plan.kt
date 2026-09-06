@@ -202,7 +202,7 @@ class Plan internal constructor(
                         }
                     }
                     sortWith { l, r ->
-                        var ord = component(l).order.compareTo(component(r).order)
+                        val ord = component(l).order.compareTo(component(r).order)
                         if (ord != 0) ord
                         else l.compareTo(r)
                     }
@@ -226,7 +226,7 @@ class Plan internal constructor(
          * Value of -(2+level) means currently being instantiated at level
          * Other values are indices into instantiations
          */
-        private val componentSlot = components.mapTo(ArrayList<Int>(components.size)) { -1 }
+        private val componentSlot = IntArray(components.size) { -1 }
 
         /**
          * Maps slot back to the component index

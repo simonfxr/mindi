@@ -27,6 +27,8 @@ The framework's standout feature is its static dependency resolution system, whi
 
 ## Getting Started
 
+Maintainers: see the [local Maven Central publishing guide](docs/publishing.md).
+
 Add mindi to your project:
 
 ```kotlin

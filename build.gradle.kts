@@ -6,9 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.atomicfu)
     alias(libs.plugins.dokka)
-    alias(libs.plugins.nexus.publish)
-    `maven-publish`
-    id("signing")
+    alias(libs.plugins.maven.publish)
 }
 
 atomicfu {
@@ -31,10 +29,8 @@ kotlin {
     jvmToolchain(11)
 
     jvm {
-        compilations.getByName("main") {
-            kotlinOptions {
-                jvmTarget = "11"
-            }
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         }
     }
 
@@ -139,48 +135,24 @@ publishing {
             }
 
             scm {
-                connection.set("scm:git:git://github.com/simonfxr/mindi.git")
-                developerConnection.set("scm:git:ssh://github.com/simonfxr/mindi.git")
+                connection.set("scm:git:https://github.com/simonfxr/mindi.git")
+                developerConnection.set("scm:git:ssh://git@github.com/simonfxr/mindi.git")
                 url.set("https://github.com/simonfxr/mindi")
             }
         }
     }
 
-    // Configure repositories
+    // A disposable repository for inspecting the complete publication without uploading.
     repositories {
         maven {
-            name = "OSSRH"
-            val releasesRepoUrl = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
-            val snapshotsRepoUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
-            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
-
-            credentials {
-                username = project.findProperty("mavenCentralUsername") as String? ?: System.getenv("mavenCentralUsername")
-                password = project.findProperty("mavenCentralPassword") as String? ?: System.getenv("mavenCentralPassword")
-            }
+            name = "Local"
+            setUrl(layout.buildDirectory.dir("local-maven"))
         }
     }
 }
 
-// Signing configuration
-signing {
-    val signingKey: String? = project.findProperty("signingKey") as String? ?: System.getenv("signingKey")
-    val signingPassword: String? = project.findProperty("signingPassword") as String? ?: System.getenv("signingPassword")
-
-    if (signingKey != null && signingPassword != null) {
-        useInMemoryPgpKeys(signingKey, signingPassword)
-        sign(publishing.publications)
-    }
-}
-
-// Sonatype Nexus publishing configuration
-nexusPublishing {
-    repositories {
-        sonatype {
-            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
-            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
-            username.set(project.findProperty("mavenCentralUsername") as String? ?: System.getenv("mavenCentralUsername"))
-            password.set(project.findProperty("mavenCentralPassword") as String? ?: System.getenv("mavenCentralPassword"))
-        }
-    }
+mavenPublishing {
+    // Upload for validation first; releasing publicly remains an explicit action.
+    publishToMavenCentral(automaticRelease = false)
+    signAllPublications()
 }

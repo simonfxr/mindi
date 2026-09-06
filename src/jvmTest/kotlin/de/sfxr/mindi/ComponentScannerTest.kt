@@ -146,7 +146,7 @@ class ComponentScannerTest {
 
         // Verify lifecycle methods are detected
         assertTrue(component6?.postConstruct != null, "PostConstruct method should be detected")
-        assertTrue(component6?.close != null, "PreDestroy method should be detected")
+        assertTrue(component6.close != null, "PreDestroy method should be detected")
     }
 
     @Test
