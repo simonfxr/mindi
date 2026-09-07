@@ -264,26 +264,26 @@ class Context(
             return
 
         // Publish ContextClosedEvent before components are destroyed
-        var eventPublishException = try {
+        val eventPublishException = try {
             publishEvent(ContextClosedEvent(this))
             null
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             e
         }
 
-        var firstException: Exception? = null
+        var firstException: Throwable? = null
         while (!instances.isEmpty()) {
             val v = instances.removeLast()
             try {
                 (shared.components[instances.size].close ?: continue)(v)
-            } catch (e: Exception) {
-                firstException?.addSuppressed(e)
+            } catch (e: Throwable) {
+                if (firstException !== e) firstException?.addSuppressed(e)
                 firstException = firstException ?: e
             }
         }
 
         if (eventPublishException != null) {
-            firstException?.addSuppressed(eventPublishException)
+            if (firstException !== eventPublishException) firstException?.addSuppressed(eventPublishException)
             firstException = firstException ?: eventPublishException
         }
 
@@ -415,7 +415,19 @@ class Context(
                     }
 
                     if (slotOrUnset == -1) {
-                        instances.add(context.(c.construct)(args))
+                        val obj = context.(c.construct)(args)
+                        if (context.isClosed) {
+                            // close() could not see the instance while its constructor
+                            // was running, and a second close() would be a no-op.
+                            val failure = IllegalStateException("context closed during construction")
+                            try {
+                                c.close?.invoke(obj)
+                            } catch (closeException: Throwable) {
+                                failure.addSuppressed(closeException)
+                            }
+                            throw failure
+                        }
+                        instances.add(obj)
                     } else if (slotOrUnset >= 0) {
                         val obj = instances[slot]
                         for ((j, v) in args.withIndex())
@@ -425,14 +437,17 @@ class Context(
                     }
                 }
 
+                check(!context.isClosed && parentContext?.isClosed != true) {
+                    "context closed during construction"
+                }
                 context.isStarted = true
                 context.publishEvent(ContextRefreshedEvent(context))
                 return context
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 try {
                     context.close()
-                } catch (closeException: Exception) {
-                    e.addSuppressed(closeException)
+                } catch (closeException: Throwable) {
+                    if (e !== closeException) e.addSuppressed(closeException)
                 }
                 throw e
             }

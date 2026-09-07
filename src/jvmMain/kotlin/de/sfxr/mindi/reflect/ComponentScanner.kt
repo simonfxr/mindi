@@ -1,6 +1,7 @@
 package de.sfxr.mindi.reflect
 
 import de.sfxr.mindi.Component
+import java.net.URI
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.nio.file.FileSystems
@@ -17,6 +18,14 @@ internal typealias ClassSet = MutableMap<String, Class<*>>
 object ComponentScanner {
     /**
      * Finds components in the specified package prefixes by scanning for classes with component annotations.
+     *
+     * The loader must expose package resources and load the discovered classes. Supported resources
+     * are filesystem directories, local JARs, and one level of nested JARs; archives without package
+     * directory resources are not generally discoverable.
+     *
+     * Class bytes are filtered heuristically for annotation descriptors before candidates are loaded
+     * without requesting initialization. False positives may still be loaded, and Kotlin reflection
+     * may initialize objects. This does not make component instantiation lazy.
      *
      * @param packagePrefixes List of package prefixes to scan recursively for components (e.g., "com.example").
      * @param reflector The reflector to use for component detection and reflection, defaults to [Reflector.Default].
@@ -38,26 +47,28 @@ object ComponentScanner {
         val annotatedClassesSet = mutableMapOf<String, Class<*>>()
         packagePrefixes.sortedByDescending { it.length }.forEach { prefix ->
             val packagePath = prefix.replace('.', '/')
-            classLoader.resources(packagePath).forEach { resource ->
-                when (resource.protocol) {
-                    "file" -> scanFileSystem(
-                        Paths.get(resource.toURI()),
-                        prefix,
-                        annotationClasses,
-                        annotationNames,
-                        annotatedClassesSet,
-                        classLoader
-                    )
+            classLoader.resources(packagePath).use { resources ->
+                resources.forEach { resource ->
+                    when (resource.protocol) {
+                        "file" -> scanFileSystem(
+                            Paths.get(resource.toURI()),
+                            prefix,
+                            annotationClasses,
+                            annotationNames,
+                            annotatedClassesSet,
+                            classLoader
+                        )
 
-                    "jar" -> scanJarFile(
-                        resource,
-                        packagePath,
-                        prefix,
-                        annotationClasses,
-                        annotationNames,
-                        annotatedClassesSet,
-                        classLoader
-                    )
+                        "jar" -> scanJarFile(
+                            resource,
+                            packagePath,
+                            prefix,
+                            annotationClasses,
+                            annotationNames,
+                            annotatedClassesSet,
+                            classLoader
+                        )
+                    }
                 }
             }
         }
@@ -73,7 +84,7 @@ object ComponentScanner {
      * @param dirPath The base directory path corresponding to the package prefix.
      * @param packagePrefix The package prefix (e.g., "com.example").
      * @param annotationClasses List of annotations to check for.
-     * @param annotatedClasses Thread-safe set to collect annotated classes.
+     * @param annotatedClasses Map to collect annotated classes.
      * @param classLoader Class loader to load classes.
      */
     private fun scanFileSystem(
@@ -85,12 +96,13 @@ object ComponentScanner {
         classLoader: ClassLoader,
     ) {
         if (!Files.exists(dirPath)) return
-        Files.walk(dirPath)
-            .filter { it.isRegularFile() && it.toString().endsWith(".class") }
-            .forEach { path ->
-                val className = getClassNameFromPath(dirPath, path, packagePrefix)
-                checkAndAddClass(className, annotationClasses, annotationNames, annotatedClasses, classLoader)
-            }
+        Files.walk(dirPath).use { paths ->
+            paths.filter { it.isRegularFile() && it.toString().endsWith(".class") }
+                .forEach { path ->
+                    val className = getClassNameFromPath(dirPath, path, packagePrefix)
+                    checkAndAddClass(className, annotationClasses, annotationNames, annotatedClasses, classLoader)
+                }
+        }
     }
 
     /**
@@ -100,7 +112,7 @@ object ComponentScanner {
      * @param packagePath The package path (e.g., "com/example").
      * @param packagePrefix The package prefix (e.g., "com.example").
      * @param annotationClasses List of annotations to check for.
-     * @param annotatedClasses Thread-safe set to collect annotated classes.
+     * @param annotatedClasses Map to collect annotated classes.
      * @param classLoader Class loader to load classes.
      */
     private fun scanJarFile(
@@ -118,23 +130,23 @@ object ComponentScanner {
 
         when {
             urlPath.startsWith("jar:file:") -> {
-                val exclamationIndex = urlPath.indexOf("!")
+                val exclamationIndex = urlPath.indexOf("!/")
                 if (exclamationIndex != -1) {
-                    jarPath = java.net.URLDecoder.decode(urlPath.substring(9, exclamationIndex), StandardCharsets.UTF_8)
+                    jarPath = Paths.get(URI(urlPath.substring(4, exclamationIndex))).toString()
                     internalPath = if (exclamationIndex < urlPath.length - 1) {
-                        urlPath.substring(exclamationIndex + 1)
+                        URI(urlPath.substring(exclamationIndex + 1)).path
                     } else {
                         ""
                     }
                 } else {
-                    jarPath = java.net.URLDecoder.decode(urlPath.substring(9), StandardCharsets.UTF_8)
+                    jarPath = Paths.get(URI(urlPath.substring(4))).toString()
                     internalPath = ""
                 }
             }
             else -> {
                 val path = resource.path
                 val start = if (path.startsWith("file:")) 5 else 0
-                val exclamationIndex = path.indexOf("!")
+                val exclamationIndex = path.indexOf("!/")
                 if (exclamationIndex != -1) {
                     jarPath = path.substring(start, exclamationIndex)
                     internalPath = if (exclamationIndex < path.length - 1) {
@@ -149,7 +161,7 @@ object ComponentScanner {
             }
         }
 
-        if (internalPath.contains("!")) {
+        if (internalPath.contains("!/")) {
             scanNestedJarFile(
                 jarPath,
                 internalPath,
@@ -163,7 +175,7 @@ object ComponentScanner {
         } else {
             scanStandardJarFile(
                 Paths.get(jarPath),
-                packagePath,
+                internalPath.removePrefix("/").ifEmpty { packagePath },
                 packagePrefix,
                 annotationClasses,
                 annotationNames,
@@ -180,7 +192,7 @@ object ComponentScanner {
      * @param packagePath Package path within the JAR (e.g., "com/example").
      * @param packagePrefix Package prefix (e.g., "com.example").
      * @param annotationClasses List of annotations to check for.
-     * @param annotatedClasses Thread-safe set to collect annotated classes.
+     * @param annotatedClasses Map to collect annotated classes.
      * @param classLoader Class loader to load classes.
      */
     private fun scanStandardJarFile(
@@ -199,12 +211,13 @@ object ComponentScanner {
             val jarRoot = fs.getPath(packagePath)
             if (!Files.exists(jarRoot))
                 return
-            Files.walk(jarRoot)
-                .filter { it.isRegularFile() && it.toString().endsWith(".class") }
-                .forEach { path ->
-                    val className = getClassNameFromPath(jarRoot, path, packagePrefix)
-                    checkAndAddClass(className, annotationClasses, annotationNames, annotatedClasses, classLoader)
-                }
+            Files.walk(jarRoot).use { paths ->
+                paths.filter { it.isRegularFile() && it.toString().endsWith(".class") }
+                    .forEach { path ->
+                        val className = getClassNameFromPath(jarRoot, path, packagePrefix)
+                        checkAndAddClass(className, annotationClasses, annotationNames, annotatedClasses, classLoader)
+                    }
+            }
         } finally {
             fs.close()
         }
@@ -219,7 +232,7 @@ object ComponentScanner {
      * @param packagePath Default package path if not specified in internalPath.
      * @param packagePrefix Package prefix (e.g., "com.example").
      * @param annotationClasses List of annotations to check for.
-     * @param annotatedClasses Thread-safe set to collect annotated classes.
+     * @param annotatedClasses Map to collect annotated classes.
      * @param classLoader Class loader to load classes.
      */
     internal fun scanNestedJarFile(
@@ -232,10 +245,7 @@ object ComponentScanner {
         annotatedClasses: ClassSet,
         classLoader: ClassLoader,
     ) {
-        // Increment counter for test verification
-        nestedJarScannedCount++
-
-        val parts = internalPath.split("!", limit = 2)
+        val parts = internalPath.split("!/", limit = 2)
         val nestedJarPath = parts[0].removePrefix("/")
         val nestedPackagePath = if (parts.size > 1) parts[1].removePrefix("/") else packagePath
 
@@ -273,7 +283,7 @@ object ComponentScanner {
             .replace('/', '.')
             .replace('\\', '.')
             .dropLast(6) // Remove ".class"
-        return "$packagePrefix.$relativePath"
+        return if (packagePrefix.isEmpty()) relativePath else "$packagePrefix.$relativePath"
     }
 
     /**
@@ -281,7 +291,7 @@ object ComponentScanner {
      *
      * @param className Fully qualified class name to check.
      * @param annotationClasses List of annotations to look for.
-     * @param annotatedClasses Thread-safe set to collect annotated classes.
+     * @param annotatedClasses Map to collect annotated classes.
      * @param classLoader Class loader to load the class.
      */
     private fun checkAndAddClass(
@@ -342,8 +352,4 @@ object ComponentScanner {
         }
         return false
     }
-
-    // Statistics for testing purposes
-    internal var nestedJarScannedCount = 0
-        private set
 }

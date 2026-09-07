@@ -9,20 +9,22 @@
 
 mindi is a lightweight, flexible dependency injection framework for Kotlin Multiplatform projects. It provides a powerful DI container with Spring-like features while maintaining a small footprint and Kotlin-first design.
 
-The framework's standout feature is its static dependency resolution system, which fully validates component graphs before instantiation. This ensures your application either starts completely or fails fast with clear error messages - no more partial initialization failures or runtime dependency surprises.
+JVM (Java 11+) is the tier-1 platform, supporting both the functional API and annotation-based reflection. JS and the configured Native targets support the functional API.
+
+The framework's standout feature is its static dependency resolution system, which validates declared component dependencies before instantiation. Missing or ambiguous dependencies and dependency cycles fail before managed constructors run. Constructors and lifecycle callbacks can still fail at runtime.
 
 ## Features
 
-- **Static Dependency Resolution**: All dependencies are fully resolved statically before any constructors are called, preventing partial initialization failures
+- **Static Dependency Resolution**: Declared component dependencies are validated before managed constructors are called
 - **Fail-Fast Validation**: Build and validate component graphs at application startup, catching configuration errors early
-- **Multiplatform Support**: Works on JVM, Native, and JS
+- **Multiplatform Support**: Targets JVM 11+, JS, Linux x64/ARM64, and Windows x64
 - **Annotation-based Component Scanning**: Automatic discovery of components using annotations (JVM)
 - **@Bean Factory Methods**: Define beans programmatically in configuration objects
 - **Functional API**: Define components using Kotlin's type-safe DSL
 - **Hierarchical Contexts**: Parent-child relationships for modular applications
 - **Value Resolution**: Environment variable and property substitution
 - **Lifecycle Management**: PostConstruct/PreDestroy hooks and automatic resource cleanup
-- **AutoCloseable Support**: Components implementing AutoCloseable are automatically closed when the context is closed
+- **AutoCloseable Support**: JVM-reflected components whose declared type implements AutoCloseable are automatically closed; functional components use `.onClose { close() }`
 - **Event System**: Publish-subscribe pattern with type-safe event handlers
 - **Type-safe Dependency Resolution**: Autowire by type with generics support
 - **Qualifier Support**: Disambiguate multiple implementations of the same interface
@@ -48,7 +50,6 @@ The functional API allows you to define components and their dependencies explic
 
 ```kotlin
 import de.sfxr.mindi.*
-import kotlin.reflect.typeOf
 
 // Define your service interfaces and implementations
 interface UserRepository {
@@ -88,7 +89,7 @@ val serviceComponent = Component { repo: UserRepository ->
 // Create a configuration component with injected environment values
 val configComponent = Component { enableCaching: Boolean -> AppConfig(enableCaching) }
     .named("appConfig")
-    .requireValue(0, "\${app.cache.enabled:false}")  // Set enableCaching from property or default to false
+    .requireValue(0, "\${app.cache.enabled:false}")  // Resolve from environment or default to false
 
 // Create and use the context with automatic resource management
 Context.instantiate(
@@ -99,13 +100,13 @@ Context.instantiate(
     val userService = context.get<UserService>()
 
     // Get a component with null safety
-    val configService = context.getOrNull<ConfigService>()
-    if (configService != null) {
-        println("Config loaded: ${configService.isEnabled}")
+    val config = context.getOrNull<AppConfig>()
+    if (config != null) {
+        println("Caching enabled: ${config.enableCaching}")
     }
 
     // Get all implementations of an interface
-    val allRepositories = context.getAll<Repository>()
+    val allRepositories = context.getAll<UserRepository>()
     println("Available repositories: ${allRepositories.keys.joinToString()}")
 
     // Use the primary service
@@ -118,14 +119,14 @@ Context.instantiate(
 
 ## JVM Reflection API
 
-On the JVM, you can use annotations for a Spring-like experience with component scanning:
+On the JVM, you can use annotations for a Spring-like experience with component scanning. This illustrative application uses application-specific service and data-source types:
 
 ```kotlin
 import de.sfxr.mindi.annotations.*
 import de.sfxr.mindi.reflect.ComponentScanner
 import de.sfxr.mindi.reflect.Reflector
+import de.sfxr.mindi.reflect.reflectFactory
 import de.sfxr.mindi.Context
-import de.sfxr.mindi.Plan
 
 // Define components using annotations
 @Component
@@ -201,11 +202,6 @@ object AppConfig {
         }
     }
 
-    @Bean
-    fun userRepository(dataSource: DataSource): UserRepository {
-        return JdbcUserRepository(dataSource)
-    }
-
     @Bean("auditService")
     @Qualifier("production")
     fun createAuditService(): AuditService {
@@ -219,7 +215,7 @@ fun main() {
     val components = ComponentScanner.findComponents(listOf("com.example.app"))
 
     // Add beans from configuration object
-    val beanComponents = Reflector.reflectFactory(AppConfig)
+    val beanComponents = Reflector.Default.reflectFactory(AppConfig)
 
     // Combine all components
     val allComponents = components + beanComponents
@@ -239,21 +235,34 @@ fun main() {
 
         // When this block exits:
         // 1. Context.close() is called automatically by .use()
-        // 2. @PreDestroy methods are called on all components
-        // 3. close() is called on all AutoCloseable components
+        // 2. Components are closed in reverse creation order, running their
+        //    @PreDestroy callbacks followed by AutoCloseable.close()
     }
 }
 ```
 
+### Component scanning limits
+
+The handwritten scanner recursively searches package resources exposed by the supplied class loader (the thread context class loader by default). It supports filesystem directories, standard JARs, and one level of nested JARs. The loader must expose the package resources and be able to load the discovered classes; JARs without package directory entries are not generally discoverable via `URLClassLoader`, and arbitrary executable/fat-JAR layouts are not automatically supported.
+
+Scanning first searches class bytes for configured annotation descriptors, then loads candidates with `Class.forName(name, false, classLoader)` and checks their annotations. This is a byte-substring heuristic, not a classfile parser: unannotated classes containing the descriptor can also be loaded. Class loading requests no initialization, but subsequent Kotlin reflection may initialize objects. This optimization is not lazy component instantiation; `Context.instantiate` eagerly creates the components included in its plan.
+
 ### Automatic Resource Management
 
-mindi automatically manages the lifecycle of components that implement `AutoCloseable`. When the context is closed:
+mindi registers automatic cleanup for JVM-reflected components whose declared type implements `AutoCloseable` (for `@Bean`, this is the method's declared return type). For functional components, register cleanup explicitly:
+
+```kotlin
+val connectionComponent = Component { -> DatabaseConnection("jdbc:h2:mem:test") }
+    .onClose { close() }
+```
+
+When the context is closed:
 
 1. All components in the context are destroyed in reverse order of creation
-2. Components with `@PreDestroy` methods have those methods called
-3. Components that implement `AutoCloseable` have their `close()` method called automatically
+2. Each component's registered cleanup callback runs; for reflected components, `@PreDestroy` callbacks precede automatic `close()`
+3. If a component's cleanup throws an exception, remaining components are still processed; multiple exceptions are collected as suppressed exceptions
 
-This makes mindi ideal for managing resources like database connections, file handles, and network connections without leaks, similar to modern Spring applications.
+Cleanup callbacks should release resources reliably even when startup fails. If one cleanup callback throws, remaining cleanup callbacks are still attempted, with later failures added as suppressed exceptions.
 
 ## Key Feature: Static Dependency Resolution
 
@@ -278,7 +287,7 @@ Context.instantiate(plan).use { context ->
 This approach offers several significant advantages:
 
 1. **Fail-Fast Behavior**: Detect configuration issues early, before any components are instantiated
-2. **No Partial Initialization**: Never end up with a partially initialized application
+2. **Earlier Graph Errors**: Dependency graph errors do not leave partially created managed components
 3. **Deterministic Startup**: Components are always initialized in a consistent order
 4. **Better Testing**: Validate component graphs without actually creating instances
 5. **Improved Performance**: Resolution happens once, not repeatedly during initialization
@@ -292,7 +301,7 @@ Context.instantiate(listOf(component1, component2, component3)).use { context ->
 }
 ```
 
-But under the hood, full validation still occurs before any constructors are called.
+Under the hood, graph validation still occurs before managed constructors are called. External values are resolved and parsed by `Context.instantiate`, not `Plan.build`, before component creation. This does not validate arbitrary work inside constructors, factories, or lifecycle callbacks. If startup throws an exception, the context attempts to clean up components already constructed; it cannot undo external side effects or clean up an object whose constructor did not return.
 
 ## Advanced Features
 
@@ -368,7 +377,7 @@ If you're familiar with Spring Framework, mindi provides many similar features:
 
 Key differences:
 - mindi is much more lightweight with a smaller API surface
-- Full support for Kotlin Multiplatform (JVM, JS, Native)
+- Functional API on JVM, JS, and the configured Linux/Windows Native targets; annotation reflection and scanning are JVM-only
 - Improved type safety through Kotlin's type system
 - Explicit functional API in addition to annotations
 

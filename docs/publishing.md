@@ -1,7 +1,7 @@
 # Publishing to Maven Central (local first)
 
-Coordinates: `de.sfxr:mindi`. The release version is declared in `gradle.properties`
-(currently `0.2.0`; `0.1.0` is already published). The group ID `de.sfxr` represents ownership
+Coordinates: `de.sfxr:mindi`. The release version is declared in `gradle.properties`.
+Check Central and choose an unused version before uploading. The group ID `de.sfxr` represents ownership
 of `sfxr.de`. Confirm the namespace and version before uploading: Central releases
 are immutable and a published version cannot be overwritten.
 

@@ -72,6 +72,8 @@ class Plan internal constructor(
                 return all
             else if (all.isEmpty() && required)
                 throw IllegalStateException("Failed to find provider for $type${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
+            else if (all.isEmpty())
+                return emptyList()
             else if (qual != null)
                 throw IllegalStateException("Failed to find unique provider qualified '$qual' for $type${c?.let { " required by ${it.name}: ${it.klass}" } ?: ""}")
 

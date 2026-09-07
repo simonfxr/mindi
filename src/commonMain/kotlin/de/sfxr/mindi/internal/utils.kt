@@ -16,6 +16,27 @@ internal fun compose(f: Callback?, g: Callback?): Callback {
     return { f(it); g(it) }
 }
 
+/** Runs both cleanup callbacks, retaining later failures as suppressed exceptions. */
+internal fun composeClose(f: Callback?, g: Callback?): Callback {
+    if (g == null) return f!!
+    if (f == null) return g
+    return { instance ->
+        var failure: Throwable? = null
+        try {
+            f(instance)
+        } catch (e: Throwable) {
+            failure = e
+        }
+        try {
+            g(instance)
+        } catch (e: Throwable) {
+            if (failure == null) failure = e
+            else if (failure !== e) failure.addSuppressed(e)
+        }
+        failure?.let { throw it }
+    }
+}
+
 /**
  * Optimizes an ArrayList by either returning it as is, returning empty list if empty,
  * or trimming its capacity to size for better memory usage.

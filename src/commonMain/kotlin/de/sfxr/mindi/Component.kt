@@ -3,6 +3,7 @@ package de.sfxr.mindi
 import de.sfxr.mindi.Component.Companion.DEFAULT_ORDER
 import de.sfxr.mindi.annotations.Order
 import de.sfxr.mindi.internal.compose
+import de.sfxr.mindi.internal.composeClose
 import kotlin.reflect.KClass
 import kotlin.reflect.KMutableProperty1
 import kotlin.reflect.KType
@@ -127,7 +128,12 @@ data class Component<out T: Any> internal constructor(
      * @return True if this component is a subtype of the specified type
      */
     fun isSubtypeOf(type: KType): Boolean =
-        type == this.type || type in superTypes || type == anyType
+        type == this.type || type in superTypes || type == anyType ||
+            (type.isMarkedNullable && (
+                type.classifier == Any::class ||
+                    (type.classifier == this.type.classifier && type.arguments == this.type.arguments) ||
+                    superTypes.any { it.classifier == type.classifier && it.arguments == type.arguments }
+                ))
 
     /**
      * Checks if this component is qualified by the given qualifier.
@@ -357,7 +363,7 @@ data class Component<out T: Any> internal constructor(
      */
     fun onClose(callback: T.() -> Unit): Component<T> {
         @Suppress("UNCHECKED_CAST")
-        return copy(close=compose(close) { v -> (v as T).callback() })
+        return copy(close=composeClose(close) { v -> (v as T).callback() })
     }
 
     /**

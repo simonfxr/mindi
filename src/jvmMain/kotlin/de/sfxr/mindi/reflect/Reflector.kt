@@ -4,10 +4,12 @@ import de.sfxr.mindi.*
 import de.sfxr.mindi.annotations.*
 import de.sfxr.mindi.internal.compact
 import de.sfxr.mindi.internal.compose
+import de.sfxr.mindi.internal.composeClose
 import kotlin.reflect.*
 import kotlin.reflect.full.createType
 import kotlin.reflect.full.declaredMembers
 import kotlin.reflect.full.starProjectedType
+import kotlin.reflect.full.withNullability
 import kotlin.reflect.jvm.javaField
 import de.sfxr.mindi.annotations.Component as ComponentAnnotation
 
@@ -103,6 +105,7 @@ fun <T: Any> Reflector.reflectConstructor(
     order: Int = Component.DEFAULT_ORDER
 ): Component<T> {
     check(!constructor.isSuspend)
+    constructor.setAccessible()
     val klass = type.type.classifier as KClass<*>
     val construct: Context.(List<Any?>) -> T =
         if (receiver == null) { args -> construct(constructor, args) }
@@ -298,7 +301,9 @@ fun <T: Any> Reflector.reflectFactory(type: TypeProxy<T>): List<Component<*>> {
         else
             "$type has multiple no argument constructors"
     }
-    return reflectFactory(cons.first().callBy(emptyMap()) cast type, type)
+    val constructor = cons.first()
+    constructor.setAccessible()
+    return reflectFactory(constructor.callBy(emptyMap()) cast type, type)
 }
 
 /**
@@ -431,7 +436,7 @@ private fun Reflector.scanMembers(
         val valueExpression = if (required != null) null else valueAnnotations.annotation(m) ?: javaField?.let(valueAnnotations::annotation)
         val qualifier =
             if (required == null) null
-            else qualifierAnnotations.annotation(m) ?: javaField?.let(qualifierAnnotations::annotation)
+            else qualifierAnnotations.firstQualifier(m) ?: javaField?.let(qualifierAnnotations::firstQualifier)
         if (required == null && valueExpression == null)
             continue
 
@@ -482,7 +487,7 @@ private fun Reflector.scanMembers(
         postConstruct.value = compose(postConstructCbs.foldRight(null, ::compose), postConstruct.value)
 
     if (closeCbs.isNotEmpty())
-        close.value = compose(closeCbs.foldRight(null, ::compose), close.value)
+        close.value = composeClose(closeCbs.foldRight(null, ::composeClose), close.value)
 
     for (parent in klass.supertypes)
         queue.add(substituteType(typeSubstitution, parent))
@@ -503,7 +508,9 @@ private fun substituteTypeIf(typeSubstitution: Map<String, KTypeProjection>, typ
     if (args.isEmpty()) {
         val klass = type.classifier
         if (klass is KTypeParameter)
-            return typeSubstitution[klass.name]!!.type!!
+            return typeSubstitution[klass.name]!!.type!!.let {
+                if (type.isMarkedNullable) it.withNullability(true) else it
+            }
     }
     val substitutedArgs = args.map { arg -> substituteType(typeSubstitution, arg) }
     if (substitutedArgs.zip(args).all { (old, new) -> old === new })
@@ -519,8 +526,12 @@ private fun substituteType(typeSubstitution: Map<String, KTypeProjection>, arg: 
     val klass = argType.classifier
     val substituted = if (klass is KTypeParameter) {
         val subst = typeSubstitution[klass.name] ?: throw IllegalArgumentException("Unbound type variable ${klass.name}")
-        if (subst.variance != KVariance.INVARIANT) return subst
-        subst.type ?: typeOf<Any?>() // FIXME: use proper upper bound(s)
+        if (subst.variance != KVariance.INVARIANT) {
+            val replacement = subst.type ?: return subst
+            return KTypeProjection(subst.variance, if (argType.isMarkedNullable) replacement.withNullability(true) else replacement)
+        }
+        val replacement = subst.type ?: typeOf<Any?>() // FIXME: use proper upper bound(s)
+        if (argType.isMarkedNullable) replacement.withNullability(true) else replacement
     } else {
         substituteTypeIf(typeSubstitution, argType) ?: return arg
     }
@@ -547,4 +558,3 @@ internal fun <T: Any> classType(klass: KClass<T>): TypeProxy<T> {
     require(klass.typeParameters.isEmpty()) { "cannot reflect on class type with unbound type parameters, got $klass" }
     return TypeProxy<T>(klass.starProjectedType)
 }
-

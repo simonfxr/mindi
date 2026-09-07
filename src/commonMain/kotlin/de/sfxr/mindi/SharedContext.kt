@@ -59,7 +59,7 @@ class SharedContext(
     /**
      * Cache for polymorphic event type resolution
      */
-    private var listenersByType = newConcurrentMap<KType, List<ListenerIndex>>()
+    private val listenersByType = newConcurrentMap<Pair<KType, KClass<*>>, List<ListenerIndex>>()
 
     /**
      * Resolves all listeners that can handle the given event type.
@@ -71,7 +71,10 @@ class SharedContext(
      * @return List of listener indices that can handle this event type
      */
     private fun resolveListeners(event: Any, eventType: KType): List<ListenerIndex> {
-        return listenersByType[eventType] ?: run {
+        // Matching uses the runtime class, which may differ for events published
+        // through the same base-typed publisher.
+        val key = eventType to event::class
+        return listenersByType[key] ?: run {
             buildList {
                 for ((listenerType, cs) in listenersByConcreteType) {
                     val listenerClass = listenerType.classifier as? KClass<*>
@@ -85,7 +88,7 @@ class SharedContext(
                     else l.compareTo(r)
                 }
             }.also {
-                listenersByType[eventType] = it
+                listenersByType[key] = it
             }
         }
     }

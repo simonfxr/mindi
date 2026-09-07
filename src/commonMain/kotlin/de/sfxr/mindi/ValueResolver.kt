@@ -94,7 +94,8 @@ fun <T: Any> ValueResolver.resolveValue(valueDependency: Dependency.Value<T>, co
     val variable = valueDependency.variable
     val defaultValue = valueDependency.default
 
-    val v = if (variable != "") resolve(variable) else null
+    val v = if (variable != "") runCatching { resolve(variable) }
+        .getOrElse { return Result.failure(it) } else null
 
     if (v === null && defaultValue != null)
         return Result.success(defaultValue)
@@ -111,4 +112,3 @@ fun <T: Any> ValueResolver.resolveValue(valueDependency: Dependency.Value<T>, co
 
     return runCatching { parseValue(valueDependency.typeProxy, v) }
 }
-
