@@ -116,7 +116,7 @@ fun <T: Any> Reflector.reflectConstructor(
     val constructorArgs = constructor.parameters.drop((receiver != null).compareTo(false)).map { p ->
         val paramType = substituteType(typeSubstitution, p.type)
         valueParser.dependencyFor(name, type.type, TypeProxy(paramType),
-            qualifier=qualifierAnnotations.firstQualifier(p),
+            qualifier=qualifierAnnotations.singleQualifier(p),
             required=autowiredAnnotations.annotation(p) ?: (!p.isOptional && !paramType.isMarkedNullable),
             valueExpression=valueAnnotations.annotation(p),
         )
@@ -130,8 +130,7 @@ fun <T: Any> Reflector.reflectConstructor(
     val listenerHandlers = ArrayList<Sink>()
     val superTypes = HashSet<KType>()
 
-    if (maybeExtendsAutoClosable(klass))
-        close.value = { (it as? AutoCloseable)?.close() }
+    val autoCloseable = maybeExtendsAutoClosable(klass)
 
     val queue = ArrayDeque<KType>().apply { add(type.type) }
     var typeSubstitutionOrNull = if (true) typeSubstitution else null
@@ -142,10 +141,12 @@ fun <T: Any> Reflector.reflectConstructor(
         scanMembers(
             name, queue.removeFirst(), superTypes, fields, setters, listenerArgs, listenerHandlers, postConstruct, close,
             processedProperties, processedListeners, processedLifecycle,
-            typeSubstitutionOrNull, queue,
+            typeSubstitutionOrNull, queue, autoCloseable,
         )
         typeSubstitutionOrNull = null
     }
+    if (autoCloseable)
+        close.value = composeClose(close.value) { (it as AutoCloseable).close() }
 
     return Component<T>(
         type = type.type,
@@ -373,6 +374,7 @@ private fun Reflector.scanMembers(
     processedLifecycle: MutableSet<String>,
     typeSubstitutionOrNull: Map<String, KTypeProjection>?,
     queue: ArrayDeque<KType>,
+    autoCloseable: Boolean,
 ) {
     val klass = type.classifier as KClass<*>
     if (type in superTypes)
@@ -422,8 +424,12 @@ private fun Reflector.scanMembers(
             } else if (preDestroyAnnotations.annotated(m) && (isPrivate || m.name !in processedLifecycle)) {
                 if (!isPrivate)
                     processedLifecycle.add(m.name)
-                m.setAccessible()
-                closeCbs.add(m::call)
+                // Invoke the public AutoCloseable override once, at the end of cleanup.
+                if (!(autoCloseable && m is KFunction<*> && m.name == "close" &&
+                        m.visibility == KVisibility.PUBLIC && m.returnType == typeOf<Unit>())) {
+                    m.setAccessible()
+                    closeCbs.add(m::call)
+                }
             }
         }
 
@@ -434,9 +440,6 @@ private fun Reflector.scanMembers(
         // Process injectable fields and setters
         val required = autowiredAnnotations.annotation(m) ?: javaField?.let(autowiredAnnotations::annotation)
         val valueExpression = if (required != null) null else valueAnnotations.annotation(m) ?: javaField?.let(valueAnnotations::annotation)
-        val qualifier =
-            if (required == null) null
-            else qualifierAnnotations.firstQualifier(m) ?: javaField?.let(qualifierAnnotations::firstQualifier)
         if (required == null && valueExpression == null)
             continue
 
@@ -449,6 +452,7 @@ private fun Reflector.scanMembers(
                 processedProperties.add(m.name)
 
             val setter = m.setter
+            val qualifier = if (required == null) null else qualifierAnnotations.singleQualifier(m, javaField, setter)
             m.setAccessible()
             setter.setAccessible()
             val fieldType = substituteType(typeSubstitution, m.returnType)
@@ -468,6 +472,7 @@ private fun Reflector.scanMembers(
                 processedProperties.add(propertyName)
 
             val fieldType = substituteType(typeSubstitution, params[1].type)
+            val qualifier = if (required == null) null else qualifierAnnotations.singleQualifier(m, params[1])
 
             m.setAccessible()
             fields.add(valueParser.dependencyFor(componentName, type, TypeProxy(fieldType), qualifier, isRequired, valueExpression))
@@ -487,7 +492,7 @@ private fun Reflector.scanMembers(
         postConstruct.value = compose(postConstructCbs.foldRight(null, ::compose), postConstruct.value)
 
     if (closeCbs.isNotEmpty())
-        close.value = composeClose(closeCbs.foldRight(null, ::composeClose), close.value)
+        close.value = composeClose(close.value, closeCbs.foldRight(null, ::composeClose))
 
     for (parent in klass.supertypes)
         queue.add(substituteType(typeSubstitution, parent))

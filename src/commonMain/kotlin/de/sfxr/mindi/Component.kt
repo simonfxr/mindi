@@ -123,6 +123,9 @@ data class Component<out T: Any> internal constructor(
 
     /**
      * Checks if this component's type is a subtype of the given type
+     * using its declared type and registered supertypes. A nullable request
+     * also accepts the same non-null type; generic arguments must match
+     * exactly. Generic variance and nested nullability are not inferred.
      *
      * @param type The type to check against
      * @return True if this component is a subtype of the specified type

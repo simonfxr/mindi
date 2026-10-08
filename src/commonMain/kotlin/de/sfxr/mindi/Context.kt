@@ -442,6 +442,9 @@ class Context(
                 }
                 context.isStarted = true
                 context.publishEvent(ContextRefreshedEvent(context))
+                check(!context.isClosed && parentContext?.isClosed != true) {
+                    "context closed during refresh"
+                }
                 return context
             } catch (e: Throwable) {
                 try {

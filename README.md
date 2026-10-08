@@ -264,6 +264,8 @@ When the context is closed:
 
 Cleanup callbacks should release resources reliably even when startup fails. If one cleanup callback throws, remaining cleanup callbacks are still attempted, with later failures added as suppressed exceptions.
 
+Reflected `@PreDestroy` callbacks run from subclass to superclass. Automatic `AutoCloseable.close()` runs last, exactly once even if that method also has `@PreDestroy`. Ordering between callbacks declared in the same class is unspecified.
+
 ## Key Feature: Static Dependency Resolution
 
 One of mindi's defining features is its static dependency resolution system. Unlike many DI containers that resolve dependencies dynamically during initialization (potentially causing partial startup failures), mindi resolves all dependencies ahead of time:
@@ -321,6 +323,8 @@ val childContext = Context.instantiate(
 ```
 
 ### Qualified Dependencies
+
+Reflected injection points accept at most one distinct qualifier (including custom meta-annotations). Multiple qualifiers are rejected during reflection rather than choosing one arbitrarily. Components may expose multiple qualifiers.
 
 ```kotlin
 // Define multiple implementations with qualifiers

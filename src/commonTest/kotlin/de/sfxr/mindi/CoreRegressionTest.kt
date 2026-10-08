@@ -1,6 +1,7 @@
 package de.sfxr.mindi
 
 import de.sfxr.mindi.events.ContextClosedEvent
+import de.sfxr.mindi.events.ContextRefreshedEvent
 import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,6 +42,77 @@ class CoreRegressionTest {
     class FirstEvent : Event
     class SecondEvent : Event
     class Listener
+
+    @Test
+    fun closingContextDuringRefreshedEventDoesNotReturnClosedContext() {
+        lateinit var constructingContext: Context
+        var closeCount = 0
+        val component = Component { context: Context -> constructingContext = context; Listener() }
+            .listening<ContextRefreshedEvent> { event ->
+                assertTrue(event.context.isStarted)
+                event.context.close()
+            }
+            .onClose { closeCount++ }
+        assertFailsWith<IllegalStateException> { Context.instantiate(listOf(component)) }
+        assertTrue(constructingContext.isClosed)
+        assertTrue(constructingContext.instances.isEmpty())
+        assertEquals(1, closeCount)
+        constructingContext.close()
+        assertEquals(1, closeCount)
+    }
+
+    @Test
+    fun closingParentDuringChildRefreshedEventCleansUpChild() {
+        val parent = Context.instantiate(emptyList())
+        lateinit var child: Context
+        var closeCount = 0
+        val component = Component { context: Context -> child = context; Listener() }
+            .listening<ContextRefreshedEvent> { parent.close() }
+            .onClose { closeCount++ }
+        parent.use {
+            assertFailsWith<IllegalStateException> { Context.instantiate(listOf(component), parent) }
+            assertTrue(parent.isClosed)
+            assertTrue(child.isClosed)
+            assertTrue(child.instances.isEmpty())
+            assertEquals(1, closeCount)
+        }
+    }
+
+    @Test
+    fun closingParentDuringChildConstructionClosesReturnedInstance() {
+        val parent = Context.instantiate(emptyList())
+        lateinit var child: Context
+        var closeCount = 0
+        val component = Component { context: Context ->
+            child = context
+            parent.close()
+            Listener()
+        }.onClose { closeCount++ }
+        parent.use {
+            assertFailsWith<IllegalStateException> { Context.instantiate(listOf(component), parent) }
+            assertTrue(child.isClosed)
+            assertFalse(child.isStarted)
+            assertTrue(child.instances.isEmpty())
+            assertEquals(1, closeCount)
+        }
+    }
+
+    @Test
+    fun closingParentInLastChildPostConstructDoesNotCompleteStartup() {
+        val parent = Context.instantiate(emptyList())
+        lateinit var child: Context
+        var closeCount = 0
+        val component = Component { context: Context -> child = context; Listener() }
+            .onInit { parent.close() }
+            .onClose { closeCount++ }
+        parent.use {
+            assertFailsWith<IllegalStateException> { Context.instantiate(listOf(component), parent) }
+            assertTrue(child.isClosed)
+            assertFalse(child.isStarted)
+            assertTrue(child.instances.isEmpty())
+            assertEquals(1, closeCount)
+        }
+    }
 
     @Test
     fun eventCacheDoesNotReuseRuntimeSubclassListenersForSameDeclaredType() {

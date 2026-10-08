@@ -21,7 +21,7 @@ internal fun <T> Iterable<AnnotationOf<T>>.annotation(element: KAnnotatedElement
  * @return Set of qualifier values from all matching annotations, including meta-annotations
  */
 internal fun Iterable<AnnotationOf<Any>>.allQualifiers(element: KAnnotatedElement): Set<Any> {
-    val result = flatMapTo(HashSet()) { a -> element.findAnnotations(a.klass).map { a.valueOf(it) } }
+    val result = flatMapTo(linkedSetOf()) { a -> element.findAnnotations(a.klass).map { a.valueOf(it) } }
     element.annotations.mapNotNullTo(result) { a ->
         // If this annotation type is itself annotated with @Qualifier
         a.takeIf { annotated(a.annotationClass) }
@@ -30,14 +30,20 @@ internal fun Iterable<AnnotationOf<Any>>.allQualifiers(element: KAnnotatedElemen
 }
 
 /**
- * Returns the first qualifier found from the element's annotations.
+ * Resolves one qualifier across all annotation sites of an injection point.
  *
- * @param element The annotated element to inspect
- * @return The first qualifier value, or null if no qualifier annotations are found
+ * @param elements The annotated elements belonging to the injection point
+ * @return The unique qualifier value, or null if no qualifier annotations are found
+ * @throws IllegalArgumentException If more than one distinct qualifier is present
  * @see allQualifiers
  */
-internal fun Iterable<AnnotationOf<Any>>.firstQualifier(element: KAnnotatedElement) =
-    allQualifiers(element).firstOrNull()
+internal fun Iterable<AnnotationOf<Any>>.singleQualifier(vararg elements: KAnnotatedElement?): Any? {
+    val qualifiers = elements.filterNotNull().flatMapTo(linkedSetOf()) { allQualifiers(it) }
+    require(qualifiers.size <= 1) {
+        "Multiple qualifiers $qualifiers on injection point ${elements.first()}"
+    }
+    return qualifiers.singleOrNull()
+}
 
 /**
  * Checks if an element has any of the specified annotations.

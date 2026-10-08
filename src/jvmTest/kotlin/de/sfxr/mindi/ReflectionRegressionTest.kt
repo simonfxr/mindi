@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -57,9 +58,34 @@ class ReflectionRegressionTest {
         }
     }
 
+    open class AnnotatedCloseParent {
+        val calls = mutableListOf<String>()
+
+        @PreDestroy
+        open fun close() {
+            calls += "close"
+            error("close failed")
+        }
+
+        @PreDestroy
+        fun destroyParent() {
+            calls += "parent"
+        }
+    }
+
+    class AnnotatedCloseComponent : AnnotatedCloseParent(), AutoCloseable {
+        @PreDestroy
+        override fun close() = super.close()
+
+        @PreDestroy
+        fun destroyChild() {
+            calls += "child"
+        }
+    }
+
     @Qualifier
     @Retention(AnnotationRetention.RUNTIME)
-    @Target(AnnotationTarget.CLASS, AnnotationTarget.FIELD, AnnotationTarget.FUNCTION)
+    @Target(AnnotationTarget.CLASS, AnnotationTarget.FIELD, AnnotationTarget.FUNCTION, AnnotationTarget.VALUE_PARAMETER)
     annotation class Selected
 
     interface Service
@@ -81,6 +107,75 @@ class ReflectionRegressionTest {
         fun setService(service: Service) {
             received = service
         }
+    }
+
+    class AmbiguousConstructorConsumer(@Qualifier("named") @Selected val service: Service)
+
+    class AmbiguousFieldConsumer {
+        @Autowired
+        @field:Qualifier("named")
+        @field:Selected
+        lateinit var service: Service
+    }
+
+    class SplitQualifierConsumer {
+        @Autowired
+        @Qualifier("named")
+        @field:Selected
+        lateinit var service: Service
+    }
+
+    class AmbiguousSetterConsumer {
+        @Autowired
+        @Qualifier("named")
+        @Selected
+        fun setService(service: Service) {}
+    }
+
+    class SplitSetterQualifierConsumer {
+        @Autowired
+        @Qualifier("named")
+        fun setService(@Selected service: Service) {}
+    }
+
+    class RepeatedQualifierConsumer {
+        @Autowired
+        @Qualifier("named")
+        @field:Qualifier("named")
+        lateinit var service: Service
+    }
+
+    @Qualifier("named")
+    @Selected
+    class MultiplyQualifiedService : Service
+
+    @Test
+    fun injectionPointsRejectMultipleDistinctQualifiers() {
+        for (klass in listOf(
+            AmbiguousConstructorConsumer::class,
+            AmbiguousFieldConsumer::class,
+            SplitQualifierConsumer::class,
+            AmbiguousSetterConsumer::class,
+            SplitSetterQualifierConsumer::class,
+        )) {
+            val failure = assertFailsWith<IllegalArgumentException> { Reflector.Default.reflect(klass) }
+            assertTrue(failure.message.orEmpty().contains("Multiple qualifiers"), "$klass: ${failure.message}")
+            assertTrue(failure.message.orEmpty().contains("service", ignoreCase = true), "$klass: ${failure.message}")
+        }
+    }
+
+    @Test
+    fun repeatedQualifierAcrossAnnotationSitesIsAllowed() {
+        val component = Reflector.Default.reflect<RepeatedQualifierConsumer>()
+        assertEquals("named", (component.fields.single() as Dependency.Single).qualifier)
+    }
+
+    @Test
+    fun providersCanStillExposeMultipleQualifiers() {
+        val component = Reflector.Default.reflect<MultiplyQualifiedService>()
+        assertEquals(2, component.qualifiers.size)
+        assertTrue(component.isQualifiedBy("named"))
+        assertTrue(component.qualifiers.any { it is Selected })
     }
 
     @Test
@@ -156,8 +251,18 @@ class ReflectionRegressionTest {
         val component = Reflector.Default.reflect<CleanupComponent>()
         val instance = CleanupComponent()
         val failure = assertFails { component.close!!(instance) }
-        assertEquals(setOf("parent", "child", "close"), instance.calls.toSet())
-        assertEquals(3, instance.calls.size)
+        assertEquals(listOf("child", "parent", "close"), instance.calls)
+        assertEquals("child cleanup failed", failure.cause?.message ?: failure.message)
         assertEquals(1, failure.suppressedExceptions.size)
+    }
+
+    @Test
+    fun annotatedAutoCloseableCloseRunsOnceAndLastEvenWhenItFails() {
+        val component = Reflector.Default.reflect<AnnotatedCloseComponent>()
+        val instance = AnnotatedCloseComponent()
+        val failure = assertFails { component.close!!(instance) }
+        assertEquals(listOf("child", "parent", "close"), instance.calls)
+        assertEquals("close failed", failure.message)
+        assertTrue(failure.suppressedExceptions.isEmpty())
     }
 }
