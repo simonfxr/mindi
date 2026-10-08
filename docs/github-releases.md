@@ -46,11 +46,11 @@ environment, allow tags matching `v*` and the `main` branch (for manual deployme
 No extra secrets or PAT are needed, and the old `gh-pages` branch is no longer
 updated. Pages is independent of Maven publishing.
 
-## Next release (example: 0.2.1)
+## Release 0.3.0
 
 `0.2.0` is already published. Do not recreate or move its tag.
 
-1. Review and commit the release changes. Set `version=0.2.1` in
+1. Review and commit the release changes. Set `version=0.3.0` in
    `gradle.properties` (or choose another unused version).
 2. Push the branch and wait for the Build and Run Tests workflows to pass.
 3. Create an annotated tag if it does not already exist, then push **that tag**:
@@ -58,8 +58,8 @@ updated. Pages is independent of Maven publishing.
    ```sh
    git -c push.followTags=false push origin main
    # Wait for branch CI; omit tag creation if already prepared locally.
-   git tag -a v0.2.1 -m "Release 0.2.1"
-   git -c push.followTags=false push origin refs/tags/v0.2.1
+   git tag -a v0.3.0 -m "Release 0.3.0"
+   git -c push.followTags=false push origin refs/tags/v0.3.0
    ```
 
 4. The **Publish to Maven Central** workflow runs tests on the tagged commit:

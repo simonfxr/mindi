@@ -117,10 +117,10 @@ verify from a separate consumer using **only** `mavenCentral()`:
 
 ```kotlin
 repositories { mavenCentral() }
-dependencies { implementation("de.sfxr:mindi:0.2.0") }
+dependencies { implementation("de.sfxr:mindi:0.3.0") }
 ```
 
-A plain Maven/JVM consumer uses `de.sfxr:mindi-jvm:0.2.0`. Confirm dependency
+A plain Maven/JVM consumer uses `de.sfxr:mindi-jvm:0.3.0`. Confirm dependency
 resolution and a small usage test before declaring the release successful.
 
 Finally clear credentials from the terminal:

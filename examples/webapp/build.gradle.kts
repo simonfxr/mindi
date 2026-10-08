@@ -5,11 +5,11 @@ plugins {
 }
 
 group = "de.sfxr.examples"
-version = "0.2.0"
+version = "0.3.0"
 
 dependencies {
     // Use local mindi dependency
-    implementation("de.sfxr:mindi:0.2.0")
+    implementation("de.sfxr:mindi:0.3.0")
 
     // Ktor for web server
     val ktorVersion = "3.5.2"
