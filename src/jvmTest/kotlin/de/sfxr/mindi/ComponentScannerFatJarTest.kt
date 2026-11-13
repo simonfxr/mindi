@@ -20,7 +20,7 @@ class ComponentScannerFatJarTest {
     @Test
     fun discoversRealComponentInsideNestedJar() = withScannerTempDirectory { directory ->
         val fixture = ComponentScannerTestComponent::class.java
-        val packagePath = fixture.packageName.replace('.', '/')
+        val packagePath = fixture.`package`.name.replace('.', '/')
         val classPath = fixture.name.replace('.', '/') + ".class"
         val inner = directory.resolve("inner.jar")
         val outer = directory.resolve("outer + components.jar")
@@ -40,9 +40,9 @@ class ComponentScannerFatJarTest {
             }
         }
         val resource = URL("jar:${outer.toUri().toASCIIString()}!/BOOT-INF/lib/components.jar!/$packagePath")
-        val loader = ArchiveFixtureLoader(fixture.packageName, resource, classes)
+        val loader = ArchiveFixtureLoader(fixture.`package`.name, resource, classes)
         assertEquals(listOf(resource), Collections.list(loader.getResources(packagePath)))
-        val components = ComponentScanner.findComponents(listOf(fixture.packageName), classLoader = loader)
+        val components = ComponentScanner.findComponents(listOf(fixture.`package`.name), classLoader = loader)
         assertEquals(listOf(fixture.name), components.map { it.klass.java.name })
         assertSame(loader, components.single().klass.java.classLoader)
     }
@@ -56,10 +56,10 @@ class ComponentScannerFatJarTest {
         val bytes = JarFile(outer.toFile()).use { jar ->
             jar.getInputStream(jar.getJarEntry("BOOT-INF/classes/$classPath")).use { it.readBytes() }
         }
-        for (prefix in listOf(fixture.packageName, "")) {
+        for (prefix in listOf(fixture.`package`.name, "")) {
             val scanPath = prefix.replace('.', '/')
             val resource = URL("jar:${outer.toUri().toASCIIString()}!/BOOT-INF/classes/$scanPath")
-            val loader = ArchiveFixtureLoader(fixture.packageName, resource, mapOf(classPath to bytes), scanPath)
+            val loader = ArchiveFixtureLoader(fixture.`package`.name, resource, mapOf(classPath to bytes), scanPath)
             assertEquals(listOf(resource), Collections.list(loader.getResources(scanPath)))
             val components = ComponentScanner.findComponents(listOf(prefix), classLoader = loader)
             assertEquals(listOf(fixture.name), components.map { it.klass.java.name }, "Scan prefix: '$prefix'")

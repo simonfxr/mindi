@@ -26,11 +26,24 @@ repositories {
 }
 
 kotlin {
-    jvmToolchain(11)
+    // Compile against Java 8 APIs, not just Java 8 bytecode.
+    jvmToolchain(8)
 
     jvm {
+        attributes {
+            attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 8)
+        }
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+        }
+        // The default jvmTest uses the Java 8 toolchain; also cover a modern runtime.
+        testRuns.create("java21") {
+            setExecutionSourceFrom(compilations.getByName("test"))
+            executionTask.configure {
+                javaLauncher.set(javaToolchains.launcherFor {
+                    languageVersion.set(JavaLanguageVersion.of(21))
+                })
+            }
         }
     }
 
@@ -65,6 +78,12 @@ kotlin {
         getByName("commonTest") {
             dependencies {
                 implementation(kotlin("test"))
+            }
+        }
+
+        getByName("jvmTest") {
+            dependencies {
+                implementation(kotlin("test-junit"))
             }
         }
 

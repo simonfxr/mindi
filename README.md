@@ -9,7 +9,7 @@
 
 mindi is a lightweight, flexible dependency injection framework for Kotlin Multiplatform projects. It provides a powerful DI container with Spring-like features while maintaining a small footprint and Kotlin-first design.
 
-JVM (Java 11+) is the tier-1 platform, supporting both the functional API and annotation-based reflection. JS and the configured Native targets support the functional API.
+JVM (Java 8+) is the tier-1 platform, supporting both the functional API and annotation-based reflection. JS and the configured Native targets support the functional API.
 
 The framework's standout feature is its static dependency resolution system, which validates declared component dependencies before instantiation. Missing or ambiguous dependencies and dependency cycles fail before managed constructors run. Constructors and lifecycle callbacks can still fail at runtime.
 
@@ -17,7 +17,7 @@ The framework's standout feature is its static dependency resolution system, whi
 
 - **Static Dependency Resolution**: Declared component dependencies are validated before managed constructors are called
 - **Fail-Fast Validation**: Build and validate component graphs at application startup, catching configuration errors early
-- **Multiplatform Support**: Targets JVM 11+, JS, Linux x64/ARM64, and Windows x64
+- **Multiplatform Support**: Targets JVM 8+, JS, Linux x64/ARM64, and Windows x64
 - **Annotation-based Component Scanning**: Automatic discovery of components using annotations (JVM)
 - **@Bean Factory Methods**: Define beans programmatically in configuration objects
 - **Functional API**: Define components using Kotlin's type-safe DSL
@@ -34,6 +34,8 @@ The framework's standout feature is its static dependency resolution system, whi
 ## Getting Started
 
 Maintainers: see the [local Maven Central publishing guide](docs/publishing.md).
+
+The library is compiled against JDK 8 and tested on Java 8 and 21. To build the project, run Gradle with JDK 21; Gradle provisions the JDK 8 toolchain automatically. Run both JVM test suites with `./gradlew jvmTest jvmJava21Test`. The Ktor webapp example has a separate Java 11+ baseline.
 
 Add mindi to your project:
 

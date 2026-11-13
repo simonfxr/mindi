@@ -7,6 +7,7 @@ import java.net.URL
 import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.Collections
 import java.util.Enumeration
 import java.util.jar.JarEntry
@@ -23,7 +24,7 @@ class ComponentScannerJarTest {
     @Test
     fun findsComponentInJarWhoseFilenameContainsPlusAndSpaces() = withScannerTempDirectory { directory ->
         val fixture = ComponentScannerTestComponent::class.java
-        val packageName = fixture.packageName
+        val packageName = fixture.`package`.name
         val packagePath = packageName.replace('.', '/')
         val classPath = fixture.name.replace('.', '/') + ".class"
         val jar = directory.resolve("components + literal plus!.jar")
@@ -45,7 +46,7 @@ class ComponentScannerJarTest {
 
     @Test
     fun discoveryDoesNotLoadUnannotatedClassesOrInitializeJavaComponents() = withScannerTempDirectory { directory ->
-        val compiler = assertNotNull(ToolProvider.getSystemJavaCompiler(), "Tests require the configured JDK 11 compiler")
+        val compiler = assertNotNull(ToolProvider.getSystemJavaCompiler(), "Tests require a JDK compiler")
         val packageName = "scanner.lazyfixture"
         val sources = directory.resolve("sources")
         val classes = directory.resolve("classes")
@@ -54,7 +55,7 @@ class ComponentScannerJarTest {
         val marker = directory.resolve("initialized")
         val markerLiteral = marker.toString().replace("\\", "\\\\").replace("\"", "\\\"")
         val annotated = sources.resolve("LazyComponent.java")
-        Files.writeString(annotated, """
+        Files.write(annotated, """
             package $packageName;
             @de.sfxr.mindi.annotations.Component
             public class LazyComponent {
@@ -64,12 +65,12 @@ class ComponentScannerJarTest {
                 }
                 public LazyComponent() {}
             }
-        """.trimIndent())
+        """.trimIndent().toByteArray(Charsets.UTF_8))
         val plain = sources.resolve("Unannotated.java")
-        Files.writeString(plain, "package $packageName; public class Unannotated {}")
+        Files.write(plain, "package $packageName; public class Unannotated {}".toByteArray(Charsets.UTF_8))
         compiler.getStandardFileManager(null, null, null).use { manager ->
-            val annotationLocation = Path.of(Component::class.java.protectionDomain.codeSource.location.toURI())
-            val options = listOf("--release", "11", "-classpath", annotationLocation.toString(), "-d", classes.toString())
+            val annotationLocation = Paths.get(Component::class.java.protectionDomain.codeSource.location.toURI())
+            val options = listOf("-source", "8", "-target", "8", "-classpath", annotationLocation.toString(), "-d", classes.toString())
             assertTrue(compiler.getTask(null, manager, null, options, null,
                 manager.getJavaFileObjects(annotated.toFile(), plain.toFile())).call(), "Compile real Java fixtures")
         }

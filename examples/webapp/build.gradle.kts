@@ -12,7 +12,7 @@ dependencies {
     implementation("de.sfxr:mindi:0.3.0")
 
     // Ktor for web server
-    val ktorVersion = "3.5.2"
+    val ktorVersion = "3.6.1"
     implementation("io.ktor:ktor-server-core:$ktorVersion")
     implementation("io.ktor:ktor-server-netty:$ktorVersion")
     implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")

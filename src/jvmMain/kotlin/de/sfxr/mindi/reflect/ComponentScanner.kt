@@ -8,6 +8,8 @@ import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.jar.JarFile
+import java.util.jar.JarInputStream
 import kotlin.io.path.isRegularFile
 
 internal typealias ClassSet = MutableMap<String, Class<*>>
@@ -47,34 +49,32 @@ object ComponentScanner {
         val annotatedClassesSet = mutableMapOf<String, Class<*>>()
         packagePrefixes.sortedByDescending { it.length }.forEach { prefix ->
             val packagePath = prefix.replace('.', '/')
-            classLoader.resources(packagePath).use { resources ->
-                resources.forEach { resource ->
-                    when (resource.protocol) {
-                        "file" -> scanFileSystem(
-                            Paths.get(resource.toURI()),
-                            prefix,
-                            annotationClasses,
-                            annotationNames,
-                            annotatedClassesSet,
-                            classLoader
-                        )
+            classLoader.getResources(packagePath).asSequence().forEach { resource ->
+                when (resource.protocol) {
+                    "file" -> scanFileSystem(
+                        Paths.get(resource.toURI()),
+                        prefix,
+                        annotationClasses,
+                        annotationNames,
+                        annotatedClassesSet,
+                        classLoader
+                    )
 
-                        "jar" -> scanJarFile(
-                            resource,
-                            packagePath,
-                            prefix,
-                            annotationClasses,
-                            annotationNames,
-                            annotatedClassesSet,
-                            classLoader
-                        )
-                    }
+                    "jar" -> scanJarFile(
+                        resource,
+                        packagePath,
+                        prefix,
+                        annotationClasses,
+                        annotationNames,
+                        annotatedClassesSet,
+                        classLoader
+                    )
                 }
             }
         }
 
         return annotatedClassesSet.values
-            .sortedBy { "${it.packageName}~~~${it.simpleName}" }
+            .sortedBy { "${it.name.substringBeforeLast('.', "")}~~~${it.simpleName}" }
             .map { reflector.reflect(it.kotlin) }
     }
 
@@ -208,7 +208,8 @@ object ComponentScanner {
             return
         val fs = FileSystems.newFileSystem(jarFile, classLoader)
         try {
-            val jarRoot = fs.getPath(packagePath)
+            // Java 8 ZipFS walks absolute paths even when given a relative root.
+            val jarRoot = fs.getPath("/" + packagePath.trim('/'))
             if (!Files.exists(jarRoot))
                 return
             Files.walk(jarRoot).use { paths ->
@@ -249,24 +250,21 @@ object ComponentScanner {
         val nestedJarPath = parts[0].removePrefix("/")
         val nestedPackagePath = if (parts.size > 1) parts[1].removePrefix("/") else packagePath
 
-        val outerJarFile = Paths.get(outerJarPath)
-        val fs = FileSystems.newFileSystem(outerJarFile, classLoader)
-        try {
-            val nestedJarFile = fs.getPath(nestedJarPath)
-            if (!Files.exists(nestedJarFile))
-                return
-
-            scanStandardJarFile(
-                nestedJarFile,
-                nestedPackagePath,
-                packagePrefix,
-                annotationClasses,
-                annotationNames,
-                annotatedClasses,
-                classLoader
-            )
-        } finally {
-            fs.close()
+        // Java 8 ZipFS cannot open a ZIP entry as another filesystem.
+        val entryPrefix = nestedPackagePath.trimEnd('/').let { if (it.isEmpty()) "" else "$it/" }
+        JarFile(outerJarPath).use { outer ->
+            val nestedJar = outer.getJarEntry(nestedJarPath) ?: return
+            JarInputStream(outer.getInputStream(nestedJar)).use { inner ->
+                var entry = inner.nextJarEntry
+                while (entry != null) {
+                    if (!entry.isDirectory && entry.name.startsWith(entryPrefix) && entry.name.endsWith(".class")) {
+                        val relativeName = entry.name.removePrefix(entryPrefix).removeSuffix(".class").replace('/', '.')
+                        val className = if (packagePrefix.isEmpty()) relativeName else "$packagePrefix.$relativeName"
+                        checkAndAddClass(className, annotationClasses, annotationNames, annotatedClasses, classLoader)
+                    }
+                    entry = inner.nextJarEntry
+                }
+            }
         }
     }
 
