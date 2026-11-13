@@ -46,11 +46,11 @@ environment, allow tags matching `v*` and the `main` branch (for manual deployme
 No extra secrets or PAT are needed, and the old `gh-pages` branch is no longer
 updated. Pages is independent of Maven publishing.
 
-## Release 0.3.0
+## Release 0.3.1
 
-`0.2.0` is already published. Do not recreate or move its tag.
+`0.2.0` and `0.3.0` are already published. Do not recreate or move their tags.
 
-1. Review and commit the release changes. Set `version=0.3.0` in
+1. Review and commit the release changes. Set `version=0.3.1` in
    `gradle.properties` (or choose another unused version).
 2. Push the branch and wait for the Build and Run Tests workflows to pass.
 3. Create an annotated tag if it does not already exist, then push **that tag**:
@@ -58,12 +58,12 @@ updated. Pages is independent of Maven publishing.
    ```sh
    git -c push.followTags=false push origin main
    # Wait for branch CI; omit tag creation if already prepared locally.
-   git tag -a v0.3.0 -m "Release 0.3.0"
-   git -c push.followTags=false push origin refs/tags/v0.3.0
+   git tag -a v0.3.1 -m "Release 0.3.1"
+   git -c push.followTags=false push origin refs/tags/v0.3.1
    ```
 
 4. The **Publish to Maven Central** workflow runs tests on the tagged commit:
-   JVM, Node.js, Linux x64, and Windows x64. Linux ARM64 is cross-compiled, not
+   JVM (Java 8 and 21), Node.js, Linux x64, and Windows x64. Linux ARM64 is cross-compiled, not
    runtime-tested. No signing secrets are given to test jobs or PR workflows.
 5. Approve the `maven-central` environment if required reviewers are configured.
    Otherwise publishing proceeds automatically. The release job checks

@@ -60,11 +60,11 @@ The old `signingKey` / `signingPassword` environment variable names are no longe
 
 ## Test and stage locally
 
-Use Linux x86-64 and JDK 21 to run the Gradle wrapper. Gradle provisions JDK 11
+Use Linux x86-64 and JDK 21 to run the Gradle wrapper. Gradle provisions JDK 8
 for JVM compilation and downloads the Kotlin/Native and Node toolchains.
 
 ```sh
-./gradlew jvmTest jsNodeTest linuxX64Test
+./gradlew jvmTest jvmJava21Test jsNodeTest linuxX64Test
 ./gradlew clean publishAllPublicationsToLocalRepository --no-configuration-cache
 ```
 
@@ -117,10 +117,10 @@ verify from a separate consumer using **only** `mavenCentral()`:
 
 ```kotlin
 repositories { mavenCentral() }
-dependencies { implementation("de.sfxr:mindi:0.3.0") }
+dependencies { implementation("de.sfxr:mindi:0.3.1") }
 ```
 
-A plain Maven/JVM consumer uses `de.sfxr:mindi-jvm:0.3.0`. Confirm dependency
+A plain Maven/JVM consumer uses `de.sfxr:mindi-jvm:0.3.1`. Confirm dependency
 resolution and a small usage test before declaring the release successful.
 
 Finally clear credentials from the terminal:

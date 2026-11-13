@@ -42,7 +42,7 @@ Add mindi to your project:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("de.sfxr:mindi:0.3.0")
+    implementation("de.sfxr:mindi:0.3.1")
 }
 ```
 
